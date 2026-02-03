@@ -46,7 +46,9 @@
         <a href="/" class="hover:text-orange-300">Dashboard</a>
         <a href="/compliance" class="hover:text-orange-300">Compliance</a>
         <a href="/admin" class="hover:text-orange-300">Admin</a>
+        {% if current_user %}
         <a href="/account" class="hover:text-orange-300">Account</a>
+        {% endif %}
       </nav>
       {% if current_user %}
       <div class="text-xs text-white/60">Signed in as <span class="text-white">{{ current_user.username }}</span></div>

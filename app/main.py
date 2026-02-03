@@ -575,6 +575,24 @@ def admin_users_toggle(request: Request, user_id: int):
     return RedirectResponse(url="/admin/users", status_code=303)
 
 
+@app.post("/admin/users/{user_id}/force-reset")
+def admin_users_force_reset(request: Request, user_id: int):
+    try:
+        user = require_admin(request)
+    except PermissionError:
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET must_reset_password = 1 WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "force_reset", "user", user_id, "must_reset_password=1")
+
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+
 @app.post("/admin/users/{user_id}/password")
 def admin_users_password(request: Request, user_id: int, new_password: str = Form(...)):
     try:
@@ -726,6 +744,35 @@ def export_acknowledgments(request: Request):
         writer.writerow([row[0], row[1], row[2], row[3], row[4], row[5], row[6]])
 
     return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=acknowledgments.csv"})
+
+
+@app.get("/admin/export/audit.csv")
+def export_audit(request: Request):
+    try:
+        require_admin(request)
+    except PermissionError:
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    rows = cur.execute(
+        """
+        SELECT audit_log.created_at, audit_log.action, audit_log.entity_type, audit_log.entity_id,
+               audit_log.details, users.username
+        FROM audit_log
+        LEFT JOIN users ON users.id = audit_log.actor_user_id
+        ORDER BY audit_log.created_at DESC
+        """
+    ).fetchall()
+    conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["created_at", "action", "entity_type", "entity_id", "details", "username"])
+    for row in rows:
+        writer.writerow([row[0], row[1], row[2], row[3], row[4], row[5]])
+
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=audit_log.csv"})
 
 
 @app.get("/admin/export/sops.csv")

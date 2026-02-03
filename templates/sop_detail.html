@@ -2,23 +2,36 @@
 {% block content %}
 <div class="flex flex-col gap-6">
   <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-5 sm:p-6">
-    <h1 class="text-2xl font-semibold mb-1">{{ sop.title }}</h1>
-    <div class="text-sm text-white/60 mb-4">Category: {{ sop.category }}</div>
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div>
+        <h1 class="text-2xl font-semibold mb-1">{{ sop.title }}</h1>
+        <div class="text-sm text-white/60 mb-4">Category: {{ sop.category }} · Version {{ sop.current_version }}</div>
+      </div>
+      <a href="/sop/{{ sop.id }}/print" class="border border-white/10 rounded-lg px-3 py-2 text-sm hover:bg-white/5">Print</a>
+    </div>
     <div class="prose max-w-none text-white/90 whitespace-pre-wrap">{{ sop.content }}</div>
   </section>
 
   <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-5 sm:p-6">
     <h2 class="text-xl font-semibold mb-4">Staff Acknowledged Reading</h2>
-    <form method="post" action="/sop/{{ sop.id }}/ack" class="flex flex-col gap-3">
-      <label class="text-sm font-semibold">Staff Name
-        <input type="text" name="staff_name" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+
+    {% if current_user and current_user.staff_id %}
+    <form method="post" action="/sop/{{ sop.id }}/ack" class="flex flex-col gap-3" id="ack-form">
+      <label class="text-sm font-semibold">Signature (type full name)
+        <input type="text" name="signature_text" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
       </label>
       <label class="inline-flex items-center gap-2 text-sm text-white/80">
         <input type="checkbox" required class="h-4 w-4" />
         I acknowledge that I have read and understand this SOP.
       </label>
-      <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold w-fit">Submit</button>
+      <input type="hidden" name="read_seconds" id="read_seconds" value="0" />
+      <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold w-fit" id="ack-submit" disabled>
+        Acknowledge ({{ min_read_seconds }}s)
+      </button>
     </form>
+    {% else %}
+      <div class="text-sm text-white/60">Only staff accounts linked to a staff record can acknowledge SOPs.</div>
+    {% endif %}
 
     <div class="mt-6">
       <h3 class="text-lg font-semibold mb-2">Recent Acknowledgments</h3>
@@ -27,11 +40,35 @@
       {% else %}
         <ul class="text-sm">
           {% for ack in acknowledgments %}
-            <li class="border-b border-white/10 py-2">{{ ack.staff_name }} — {{ ack.acknowledged_at }}</li>
+            <li class="border-b border-white/10 py-2">
+              {{ ack.staff_name }} — {{ ack.acknowledged_at }} (v{{ ack.sop_version }}, {{ ack.read_seconds }}s)
+            </li>
           {% endfor %}
         </ul>
       {% endif %}
     </div>
   </section>
 </div>
+
+<script>
+  (function () {
+    const minSeconds = {{ min_read_seconds }};
+    const submit = document.getElementById('ack-submit');
+    const readInput = document.getElementById('read_seconds');
+    if (!submit || !readInput) return;
+    let seconds = 0;
+
+    const timer = setInterval(() => {
+      seconds += 1;
+      readInput.value = seconds;
+      if (seconds >= minSeconds) {
+        submit.disabled = false;
+        submit.textContent = 'Acknowledge';
+        clearInterval(timer);
+      } else {
+        submit.textContent = `Acknowledge (${minSeconds - seconds}s)`;
+      }
+    }, 1000);
+  })();
+</script>
 {% endblock %}

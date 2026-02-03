@@ -9,10 +9,20 @@
     <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/admin">Back to Admin</a>
   </div>
 
-  <form method="post" action="/admin/staff/new" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row gap-3 md:items-center">
-    <input type="text" name="name" placeholder="Add staff member" required class="flex-1 bg-transparent border border-white/10 rounded-lg px-3 py-2" />
-    <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold">Add Staff</button>
-  </form>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <form method="post" action="/admin/staff/new" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+      <h3 class="text-sm font-semibold text-white/70">Add Staff</h3>
+      <input type="text" name="name" placeholder="Full name" required class="flex-1 bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+      <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold w-fit">Add Staff</button>
+    </form>
+
+    <form method="post" action="/admin/staff/import" enctype="multipart/form-data" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+      <h3 class="text-sm font-semibold text-white/70">Import Staff CSV</h3>
+      <input type="file" name="file" accept=".csv" required class="text-sm" />
+      <p class="text-xs text-white/50">CSV should have a <code>name</code> column.</p>
+      <button class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5 w-fit">Import</button>
+    </form>
+  </div>
 
   <div class="bg-[#2f3640] border border-white/10 rounded-2xl overflow-hidden">
     <table class="w-full text-sm">

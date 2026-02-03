@@ -1,4 +1,3 @@
-import os
 import sqlite3
 from pathlib import Path
 
@@ -14,9 +13,32 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def _column_names(cur: sqlite3.Cursor, table: str) -> set[str]:
+    return {row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _index_names(cur: sqlite3.Cursor, table: str) -> set[str]:
+    return {row[1] for row in cur.execute(f"PRAGMA index_list({table})").fetchall()}
+
+
 def init_db() -> None:
     conn = get_connection()
     cur = conn.cursor()
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'staff',
+            staff_id INTEGER,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
+        );
+        """
+    )
 
     cur.execute(
         """
@@ -37,8 +59,29 @@ def init_db() -> None:
             title TEXT NOT NULL,
             category TEXT NOT NULL,
             content TEXT NOT NULL,
+            current_version INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_reviewed TEXT,
+            source_file TEXT,
+            content_clean TEXT
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sop_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sop_id INTEGER NOT NULL,
+            version INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_by INTEGER,
+            FOREIGN KEY (sop_id) REFERENCES sops(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
         );
         """
     )
@@ -49,39 +92,87 @@ def init_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sop_id INTEGER NOT NULL,
             staff_id INTEGER NOT NULL,
+            sop_version INTEGER NOT NULL DEFAULT 1,
+            staff_name TEXT,
+            signature_text TEXT,
+            read_seconds INTEGER DEFAULT 0,
             acknowledged_at TEXT NOT NULL DEFAULT (datetime('now')),
+            ip_address TEXT,
+            user_agent TEXT,
             FOREIGN KEY (sop_id) REFERENCES sops(id),
-            FOREIGN KEY (staff_id) REFERENCES staff(id),
-            UNIQUE (sop_id, staff_id)
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
         );
         """
     )
 
-    # Simple migration support for older databases
-    columns = {row[1] for row in cur.execute("PRAGMA table_info(acknowledgments)").fetchall()}
-    if "staff_id" not in columns:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_user_id INTEGER,
+            action TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id INTEGER,
+            details TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (actor_user_id) REFERENCES users(id)
+        );
+        """
+    )
+
+    # Migration: remove old unique constraint on acknowledgments (sop_id, staff_id)
+    if "ack_unique" in _index_names(cur, "acknowledgments"):
+        cur.execute("DROP INDEX IF EXISTS ack_unique")
+
+    # Migration: older acknowledgments table might include staff_name but not staff_id
+    ack_columns = _column_names(cur, "acknowledgments")
+    if "staff_id" not in ack_columns:
         cur.execute("ALTER TABLE acknowledgments ADD COLUMN staff_id INTEGER")
-    if "staff_name" in columns:
-        # best-effort migration: create staff rows from existing names
-        rows = cur.execute("SELECT DISTINCT staff_name FROM acknowledgments WHERE staff_name IS NOT NULL").fetchall()
-        for row in rows:
-            name = row[0].strip()
-            if not name:
-                continue
-            normalized = name.lower()
-            cur.execute(
-                "INSERT OR IGNORE INTO staff (name, normalized_name) VALUES (?, ?)",
-                (name, normalized),
-            )
-            staff_id = cur.execute(
-                "SELECT id FROM staff WHERE normalized_name = ?",
-                (normalized,),
-            ).fetchone()[0]
-            cur.execute(
-                "UPDATE acknowledgments SET staff_id = ? WHERE staff_name = ?",
-                (staff_id, name),
-            )
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ack_unique ON acknowledgments(sop_id, staff_id)")
+    if "sop_version" not in ack_columns:
+        cur.execute("ALTER TABLE acknowledgments ADD COLUMN sop_version INTEGER DEFAULT 1")
+    if "signature_text" not in ack_columns:
+        cur.execute("ALTER TABLE acknowledgments ADD COLUMN signature_text TEXT")
+    if "read_seconds" not in ack_columns:
+        cur.execute("ALTER TABLE acknowledgments ADD COLUMN read_seconds INTEGER DEFAULT 0")
+    if "ip_address" not in ack_columns:
+        cur.execute("ALTER TABLE acknowledgments ADD COLUMN ip_address TEXT")
+    if "user_agent" not in ack_columns:
+        cur.execute("ALTER TABLE acknowledgments ADD COLUMN user_agent TEXT")
+    if "staff_name" not in ack_columns:
+        cur.execute("ALTER TABLE acknowledgments ADD COLUMN staff_name TEXT")
+
+    # Migration: older sops table may be missing versioning columns
+    sop_columns = _column_names(cur, "sops")
+    if "current_version" not in sop_columns:
+        cur.execute("ALTER TABLE sops ADD COLUMN current_version INTEGER NOT NULL DEFAULT 1")
+    if "last_reviewed" not in sop_columns:
+        cur.execute("ALTER TABLE sops ADD COLUMN last_reviewed TEXT")
+    if "source_file" not in sop_columns:
+        cur.execute("ALTER TABLE sops ADD COLUMN source_file TEXT")
+    if "content_clean" not in sop_columns:
+        cur.execute("ALTER TABLE sops ADD COLUMN content_clean TEXT")
+
+    # Migrate any legacy acknowledgments with staff_name to staff table
+    rows = cur.execute(
+        "SELECT DISTINCT staff_name FROM acknowledgments WHERE staff_name IS NOT NULL AND staff_name != ''"
+    ).fetchall()
+    for row in rows:
+        name = row[0].strip()
+        if not name:
+            continue
+        normalized = name.lower()
+        cur.execute(
+            "INSERT OR IGNORE INTO staff (name, normalized_name) VALUES (?, ?)",
+            (name, normalized),
+        )
+        staff_id = cur.execute(
+            "SELECT id FROM staff WHERE normalized_name = ?",
+            (normalized,),
+        ).fetchone()[0]
+        cur.execute(
+            "UPDATE acknowledgments SET staff_id = ? WHERE staff_name = ?",
+            (staff_id, name),
+        )
 
     conn.commit()
     conn.close()

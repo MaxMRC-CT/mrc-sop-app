@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex flex-col gap-6">
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-semibold">User Accounts</h1>
+      <p class="text-sm text-white/60">Create login access for staff and admins.</p>
+    </div>
+    <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/admin">Back to Admin</a>
+  </div>
+
+  <form method="post" action="/admin/users/new" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input type="text" name="username" placeholder="Username" required class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <input type="password" name="password" placeholder="Temporary Password" required class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <select name="role" class="bg-transparent border border-white/10 rounded-lg px-3 py-2 text-white">
+      <option value="staff">Staff</option>
+      <option value="admin">Admin</option>
+    </select>
+    <select name="staff_id" class="bg-transparent border border-white/10 rounded-lg px-3 py-2 text-white">
+      <option value="">Link to Staff (optional)</option>
+      {% for s in staff %}
+        <option value="{{ s.id }}">{{ s.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold md:col-span-4 w-fit">Create User</button>
+  </form>
+
+  <div class="bg-[#2f3640] border border-white/10 rounded-2xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-white/5 text-white/60">
+        <tr>
+          <th class="text-left px-4 py-3">Username</th>
+          <th class="text-left px-4 py-3">Role</th>
+          <th class="text-left px-4 py-3">Staff Link</th>
+          <th class="text-left px-4 py-3">Status</th>
+          <th class="text-left px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr class="border-t border-white/10">
+          <td class="px-4 py-3">{{ u.username }}</td>
+          <td class="px-4 py-3">{{ u.role }}</td>
+          <td class="px-4 py-3">{{ u.staff_name or '-' }}</td>
+          <td class="px-4 py-3">
+            {% if u.active == 1 %}
+              <span class="text-green-400 font-semibold">Active</span>
+            {% else %}
+              <span class="text-white/50">Inactive</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3">
+            <form method="post" action="/admin/users/{{ u.id }}/toggle">
+              <button class="text-orange-300 hover:underline" type="submit">
+                {% if u.active == 1 %}Deactivate{% else %}Activate{% endif %}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

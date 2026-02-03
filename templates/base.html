@@ -16,7 +16,7 @@
       :root {
         --mrc-black: #0b0b0b;
         --mrc-deep: #2b313a;
-        --mrc-card: #1f232a;
+        --mrc-card: #2f3640;
         --mrc-line: rgba(255, 255, 255, 0.12);
         --mrc-orange: #f37021;
         --mrc-orange-2: #f6a623;
@@ -41,11 +41,19 @@
         <div class="text-sm text-white/70">Real Recovery. Real People. Real Simple.</div>
       </div>
     </div>
-    <nav class="text-sm flex flex-wrap gap-4 sm:gap-6">
-      <a href="/" class="hover:text-orange-300">Dashboard</a>
-      <a href="/compliance" class="hover:text-orange-300">Compliance</a>
-      <a href="/admin" class="hover:text-orange-300">Admin</a>
-    </nav>
+    <div class="flex flex-wrap items-center gap-4">
+      <nav class="text-sm flex flex-wrap gap-4 sm:gap-6">
+        <a href="/" class="hover:text-orange-300">Dashboard</a>
+        <a href="/compliance" class="hover:text-orange-300">Compliance</a>
+        <a href="/admin" class="hover:text-orange-300">Admin</a>
+      </nav>
+      {% if current_user %}
+      <div class="text-xs text-white/60">Signed in as <span class="text-white">{{ current_user.username }}</span></div>
+      <form method="post" action="/logout">
+        <button class="border border-white/20 rounded-lg px-3 py-1 text-xs hover:bg-white/10">Logout</button>
+      </form>
+      {% endif %}
+    </div>
   </div>
   <div class="h-1 mrc-gradient"></div>
 </header>

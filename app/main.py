@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from .db import get_connection, init_db
+from .seed import import_sops
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -18,6 +19,12 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    conn = get_connection()
+    cur = conn.cursor()
+    count = cur.execute("SELECT COUNT(*) AS c FROM sops").fetchone()["c"]
+    conn.close()
+    if count == 0:
+        import_sops()
 
 
 @app.get("/")

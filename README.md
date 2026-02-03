@@ -36,6 +36,10 @@ uvicorn app.main:app --reload
 
 Open http://127.0.0.1:8000
 
+## Render deploy notes
+- The import runs automatically on startup if the database is empty.
+- SOPs are loaded from the `policies/` folder in this repo.
+
 ## Features
 - Search and filter SOPs
 - SOP detail pages with staff acknowledgment

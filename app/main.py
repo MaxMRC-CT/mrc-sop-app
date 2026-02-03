@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .db import get_connection, init_db
 from .seed import import_sops
-from .auth import authenticate, ensure_default_admin, get_current_user, require_admin, require_login, create_password_hash
+from .auth import authenticate, ensure_default_admin, get_current_user, require_admin, require_login, create_password_hash, verify_password
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -47,7 +47,7 @@ def _redirect_login() -> RedirectResponse:
     return RedirectResponse(url="/login", status_code=302)
 
 
-def _log_action(actor_id: Optional[int], action: str, entity_type: str, entity_id: Optional[int], details: str | None = None) -> None:
+def _log_action(actor_id: Optional[int], action: str, entity_type: str, entity_id: Optional[int], details: Optional[str] = None) -> None:
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -58,7 +58,7 @@ def _log_action(actor_id: Optional[int], action: str, entity_type: str, entity_i
     conn.close()
 
 
-def _client_info(request: Request) -> tuple[str | None, str | None]:
+def _client_info(request: Request) -> tuple[Optional[str], Optional[str]]:
     ip = request.client.host if request.client else None
     agent = request.headers.get("user-agent")
     return ip, agent
@@ -99,6 +99,44 @@ def login_action(request: Request, username: str = Form(...), password: str = Fo
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
+
+
+@app.get("/account")
+def account_page(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return _redirect_login()
+    return _template("account.html", request, {"request": request, "error": None, "message": None})
+
+
+@app.post("/account")
+def account_update(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+):
+    user = get_current_user(request)
+    if not user:
+        return _redirect_login()
+
+    if new_password != confirm_password:
+        return _template("account.html", request, {"request": request, "error": "Passwords do not match", "message": None})
+
+    conn = get_connection()
+    cur = conn.cursor()
+    row = cur.execute("SELECT password_hash FROM users WHERE id = ?", (user.id,)).fetchone()
+    if not row or not verify_password(current_password, row["password_hash"]):
+        conn.close()
+        return _template("account.html", request, {"request": request, "error": "Current password is incorrect", "message": None})
+
+    cur.execute("UPDATE users SET password_hash = ? WHERE id = ?", (create_password_hash(new_password), user.id))
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "password_change", "user", user.id, "self-service")
+
+    return _template("account.html", request, {"request": request, "error": None, "message": "Password updated."})
 
 
 @app.get("/")
@@ -524,6 +562,24 @@ def admin_users_toggle(request: Request, user_id: int):
     return RedirectResponse(url="/admin/users", status_code=303)
 
 
+@app.post("/admin/users/{user_id}/password")
+def admin_users_password(request: Request, user_id: int, new_password: str = Form(...)):
+    try:
+        user = require_admin(request)
+    except PermissionError:
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET password_hash = ? WHERE id = ?", (create_password_hash(new_password), user_id))
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "password_reset", "user", user_id, "admin reset")
+
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+
 @app.get("/admin/evidence/sop/{sop_id}")
 def admin_evidence(request: Request, sop_id: int):
     try:
@@ -559,6 +615,30 @@ def admin_evidence(request: Request, sop_id: int):
         request,
         {"request": request, "sop": sop, "versions": versions, "acknowledgments": acknowledgments},
     )
+
+
+@app.get("/admin/audit")
+def admin_audit(request: Request):
+    try:
+        require_admin(request)
+    except PermissionError:
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    logs = cur.execute(
+        """
+        SELECT audit_log.created_at, audit_log.action, audit_log.entity_type, audit_log.entity_id,
+               audit_log.details, users.username
+        FROM audit_log
+        LEFT JOIN users ON users.id = audit_log.actor_user_id
+        ORDER BY audit_log.created_at DESC
+        LIMIT 200
+        """
+    ).fetchall()
+    conn.close()
+
+    return _template("audit_log.html", request, {"request": request, "logs": logs})
 
 
 @app.get("/admin/export/acknowledgments.csv")

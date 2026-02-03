@@ -6,7 +6,10 @@
       <h1 class="text-2xl font-semibold">User Accounts</h1>
       <p class="text-sm text-white/60">Create login access for staff and admins.</p>
     </div>
-    <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/admin">Back to Admin</a>
+    <div class="flex flex-wrap gap-3">
+      <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/admin/audit">View Audit Log</a>
+      <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/admin">Back to Admin</a>
+    </div>
   </div>
 
   <form method="post" action="/admin/users/new" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -33,6 +36,7 @@
           <th class="text-left px-4 py-3">Role</th>
           <th class="text-left px-4 py-3">Staff Link</th>
           <th class="text-left px-4 py-3">Status</th>
+          <th class="text-left px-4 py-3">Reset Password</th>
           <th class="text-left px-4 py-3"></th>
         </tr>
       </thead>
@@ -48,6 +52,12 @@
             {% else %}
               <span class="text-white/50">Inactive</span>
             {% endif %}
+          </td>
+          <td class="px-4 py-3">
+            <form method="post" action="/admin/users/{{ u.id }}/password" class="flex flex-col sm:flex-row gap-2">
+              <input type="password" name="new_password" placeholder="New password" required class="bg-transparent border border-white/10 rounded-lg px-3 py-1.5 text-xs" />
+              <button class="border border-white/10 rounded-lg px-3 py-1.5 text-xs hover:bg-white/5" type="submit">Set</button>
+            </form>
           </td>
           <td class="px-4 py-3">
             <form method="post" action="/admin/users/{{ u.id }}/toggle">

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-xl bg-[#2f3640] border border-white/10 rounded-2xl p-6">
+  <h1 class="text-2xl font-semibold mb-2">Account</h1>
+  <p class="text-sm text-white/60 mb-4">Update your password.</p>
+  {% if message %}
+    <div class="bg-green-500/20 border border-green-500/40 text-green-100 text-sm rounded-lg p-3 mb-4">{{ message }}</div>
+  {% endif %}
+  {% if error %}
+    <div class="bg-red-500/20 border border-red-500/40 text-red-200 text-sm rounded-lg p-3 mb-4">{{ error }}</div>
+  {% endif %}
+  <form method="post" class="flex flex-col gap-4">
+    <label class="text-sm font-semibold">Current Password
+      <input type="password" name="current_password" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">New Password
+      <input type="password" name="new_password" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">Confirm New Password
+      <input type="password" name="confirm_password" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold w-fit">Update Password</button>
+  </form>
+</div>
+{% endblock %}

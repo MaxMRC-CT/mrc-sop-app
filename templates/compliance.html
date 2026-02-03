@@ -33,35 +33,57 @@
   </div>
 
   <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
-    <h2 class="text-lg font-semibold mb-3">Learning Management Summary</h2>
-    <div class="text-sm text-white/60 mb-3">Active modules: {{ lms_module_count }}</div>
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div class="bg-[#2b313a] border border-white/10 rounded-xl p-3">
-        <h3 class="text-sm font-semibold mb-2">Training Completion by Staff</h3>
-        <div class="space-y-2 text-sm">
+    <h2 class="text-lg font-semibold mb-3">Learning Management Compliance</h2>
+    <div class="text-sm text-white/60 mb-4">Active modules: {{ lms_module_count }}</div>
+
+    <div class="bg-[#2b313a] border border-white/10 rounded-xl overflow-hidden mb-4">
+      <div class="px-4 py-3 text-white/60 text-sm">Training Completion by Staff</div>
+      <table class="w-full text-sm">
+        <thead class="bg-white/5 text-white/60">
+          <tr>
+            <th class="text-left px-4 py-3">Staff</th>
+            <th class="text-left px-4 py-3">Completed</th>
+            <th class="text-left px-4 py-3">Percent</th>
+          </tr>
+        </thead>
+        <tbody>
           {% for row in lms_staff_rows %}
-            <div class="flex justify-between border-b border-white/10 py-2">
-              <span>{{ row.staff }}</span>
-              <span>{{ row.completed }}/{{ row.total }} ({{ '%.1f' % row.percent }}%)</span>
-            </div>
+          <tr class="border-t border-white/10">
+            <td class="px-4 py-3">{{ row.staff }}</td>
+            <td class="px-4 py-3">{{ row.completed }}/{{ row.total }}</td>
+            <td class="px-4 py-3">{{ '%.1f' % row.percent }}%</td>
+          </tr>
           {% endfor %}
-        </div>
-      </div>
-      <div class="bg-[#2b313a] border border-white/10 rounded-xl p-3">
-        <h3 class="text-sm font-semibold mb-2">Overdue / Not Started Trainings</h3>
-        {% if lms_overdue_rows|length == 0 %}
-          <p class="text-sm text-white/60">All staff are current on training.</p>
-        {% else %}
-          <div class="space-y-2 text-sm">
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-[#2b313a] border border-white/10 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 text-white/60 text-sm">Overdue / Not Started Trainings</div>
+      <table class="w-full text-sm">
+        <thead class="bg-white/5 text-white/60">
+          <tr>
+            <th class="text-left px-4 py-3">Staff</th>
+            <th class="text-left px-4 py-3">Module</th>
+            <th class="text-left px-4 py-3">Due</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if lms_overdue_rows|length == 0 %}
+            <tr class="border-t border-white/10">
+              <td class="px-4 py-3 text-white/60" colspan="3">All staff are current on training.</td>
+            </tr>
+          {% else %}
             {% for row in lms_overdue_rows %}
-              <div class="border-b border-white/10 py-2">
-                <div class="font-semibold">{{ row.staff }}</div>
-                <div class="text-white/60">{{ row.module }} — {{ row.due }}</div>
-              </div>
+            <tr class="border-t border-white/10">
+              <td class="px-4 py-3">{{ row.staff }}</td>
+              <td class="px-4 py-3">{{ row.module }}</td>
+              <td class="px-4 py-3">{{ row.due }}</td>
+            </tr>
             {% endfor %}
-          </div>
-        {% endif %}
-      </div>
+          {% endif %}
+        </tbody>
+      </table>
     </div>
   </section>
 

@@ -6,7 +6,12 @@
     <p class="text-sm text-white/60">Linked SOP: <a class="text-orange-300 hover:underline" href="/sop/{{ module.sop_id }}">View SOP</a></p>
   </div>
 
-  {% if question %}
+  {% if locked %}
+  <div class="bg-[#2f3640] border border-white/10 rounded-2xl p-5 sm:p-6 text-sm text-white/70">
+    You have reached the maximum number of attempts ({{ max_attempts }}) in the last {{ lockout_hours }} hours.
+    Please try again later.
+  </div>
+  {% elif question %}
   <form method="post" class="bg-[#2f3640] border border-white/10 rounded-2xl p-5 sm:p-6 flex flex-col gap-4">
     <div class="text-sm text-white/60">Passing score: {{ module.passing_score }}%</div>
     <div class="font-semibold">{{ question.question_text }}</div>

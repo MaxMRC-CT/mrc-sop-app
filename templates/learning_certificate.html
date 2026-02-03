@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Training Certificate</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f8f6f2; margin: 0; padding: 40px; }
+    .cert { border: 6px solid #f37021; padding: 40px; background: white; max-width: 800px; margin: 0 auto; }
+    .title { font-size: 28px; font-weight: bold; margin-bottom: 12px; }
+    .subtitle { color: #444; margin-bottom: 24px; }
+    .name { font-size: 22px; font-weight: bold; margin: 24px 0; }
+    .details { color: #333; }
+  </style>
+</head>
+<body>
+  <div class="cert">
+    <div class="title">Certificate of Completion</div>
+    <div class="subtitle">Mulligan Recovery Centers of CT — Learning Management</div>
+    <div class="details">This certifies that</div>
+    <div class="name">{{ staff_name }}</div>
+    <div class="details">has successfully completed</div>
+    <div class="name">{{ module_title }}</div>
+    <div class="details">on {{ completed_date }}</div>
+  </div>
+</body>
+</html>

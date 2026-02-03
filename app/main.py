@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .db import get_connection, init_db
 from .seed import import_sops
-from .learning import seed_modules, module_status
+from .learning import seed_modules, module_status, is_locked_out
 from .auth import authenticate, ensure_default_admin, get_current_user, require_admin, require_login, create_password_hash, verify_password
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,6 +23,9 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 
 REACK_DAYS = int(os.getenv("MRC_REACK_DAYS", "365"))
 MIN_READ_SECONDS = int(os.getenv("MRC_MIN_READ_SECONDS", "10"))
+
+QUIZ_MAX_ATTEMPTS = int(os.getenv("MRC_QUIZ_MAX_ATTEMPTS", "3"))
+QUIZ_LOCKOUT_HOURS = int(os.getenv("MRC_QUIZ_LOCKOUT_HOURS", "24"))
 
 app = FastAPI(title="Mulligan Recovery Centers SOPs")
 app.add_middleware(
@@ -822,7 +825,7 @@ def learning_home(request: Request):
     for m in modules:
         status, last_attempt, last_score = ("not_started", None, None)
         if user.staff_id:
-            status, last_attempt, last_score = module_status(m["module_id"], user.staff_id)
+            status, last_attempt, last_score, last_passed_date = module_status(m["module_id"], user.staff_id)
         rows.append(
             {
                 "module_id": m["module_id"],
@@ -831,6 +834,7 @@ def learning_home(request: Request):
                 "status": status,
                 "last_attempt": last_attempt,
                 "last_score": last_score,
+                "certificate_date": last_passed_date,
             }
         )
 
@@ -860,7 +864,11 @@ def learning_module(request: Request, module_id: int):
     if not module:
         return RedirectResponse(url="/learning", status_code=302)
 
-    return _template("learning_module.html", request, {"request": request, "module": module, "question": question})
+    locked, fail_count = (False, 0)
+    if user.staff_id:
+        locked, fail_count = is_locked_out(module_id, user.staff_id, QUIZ_MAX_ATTEMPTS, QUIZ_LOCKOUT_HOURS)
+
+    return _template("learning_module.html", request, {"request": request, "module": module, "question": question, "locked": locked, "fail_count": fail_count, "max_attempts": QUIZ_MAX_ATTEMPTS, "lockout_hours": QUIZ_LOCKOUT_HOURS})
 
 
 @app.post("/learning/module/{module_id}")
@@ -884,6 +892,11 @@ def learning_module_submit(request: Request, module_id: int, answer: str = Form(
         conn.close()
         return RedirectResponse(url="/learning", status_code=303)
 
+    locked, _ = is_locked_out(module_id, user.staff_id, QUIZ_MAX_ATTEMPTS, QUIZ_LOCKOUT_HOURS)
+    if locked:
+        conn.close()
+        return RedirectResponse(url="/learning/module/{module_id}", status_code=303)
+
     is_correct = answer.upper() == (question["correct_option"] or "").upper()
     score = 100 if is_correct else 0
     passed = 1 if score >= module["passing_score"] else 0
@@ -900,6 +913,91 @@ def learning_module_submit(request: Request, module_id: int, answer: str = Form(
     return RedirectResponse(url="/learning", status_code=303)
 
 
+
+
+@app.get("/learning/reports")
+def learning_reports(request: Request):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    staff = cur.execute("SELECT id, name FROM staff WHERE active = 1 ORDER BY name").fetchall()
+    modules = cur.execute("SELECT id, title, recert_days FROM training_modules WHERE active = 1 ORDER BY title").fetchall()
+
+    staff_rows = []
+    overdue_rows = []
+    for s in staff:
+        total = len(modules)
+        passed = 0
+        for m in modules:
+            last_pass = cur.execute(
+                """
+                SELECT attempted_at FROM training_attempts
+                WHERE module_id = ? AND staff_id = ? AND passed = 1
+                ORDER BY attempted_at DESC
+                LIMIT 1
+                """,
+                (m["id"], s["id"]),
+            ).fetchone()
+            if last_pass:
+                last_date = datetime.strptime(last_pass["attempted_at"], "%Y-%m-%d %H:%M:%S").date()
+                due_date = last_date + timedelta(days=m["recert_days"])
+                if date.today() <= due_date:
+                    passed += 1
+                else:
+                    overdue_rows.append({"staff": s["name"], "module": m["title"], "due": str(due_date)})
+            else:
+                overdue_rows.append({"staff": s["name"], "module": m["title"], "due": "Not started"})
+        percent = (passed / total * 100) if total else 0
+        staff_rows.append({"staff": s["name"], "passed": passed, "total": total, "percent": percent})
+
+    conn.close()
+
+    return _template(
+        "learning_reports.html",
+        request,
+        {"request": request, "staff_rows": staff_rows, "overdue_rows": overdue_rows},
+    )
+
+
+@app.get("/learning/certificate/{module_id}")
+def learning_certificate(request: Request, module_id: int):
+    user = get_current_user(request)
+    if not user:
+        return _redirect_login()
+    if not user.staff_id:
+        return RedirectResponse(url="/learning", status_code=302)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    module = cur.execute("SELECT title FROM training_modules WHERE id = ?", (module_id,)).fetchone()
+    staff = cur.execute("SELECT name FROM staff WHERE id = ?", (user.staff_id,)).fetchone()
+    last_pass = cur.execute(
+        """
+        SELECT attempted_at FROM training_attempts
+        WHERE module_id = ? AND staff_id = ? AND passed = 1
+        ORDER BY attempted_at DESC
+        LIMIT 1
+        """,
+        (module_id, user.staff_id),
+    ).fetchone()
+    conn.close()
+
+    if not module or not staff or not last_pass:
+        return RedirectResponse(url="/learning", status_code=302)
+
+    completed_date = last_pass["attempted_at"].split(" ")[0]
+    return templates.TemplateResponse(
+        "learning_certificate.html",
+        {
+            "request": request,
+            "staff_name": staff["name"],
+            "module_title": module["title"],
+            "completed_date": completed_date,
+        },
+    )
 @app.get("/learning/admin")
 def learning_admin(request: Request):
     user = get_current_user(request)

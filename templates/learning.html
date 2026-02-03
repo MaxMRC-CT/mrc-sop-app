@@ -7,7 +7,10 @@
       <p class="text-sm text-white/60">Training modules based on SOPs. Passing score {{ passing_score }}%.</p>
     </div>
     {% if is_admin %}
-      <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/learning/admin">Manage Modules</a>
+      <div class="flex flex-wrap gap-3">
+        <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/learning/admin">Manage Modules</a>
+        <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/learning/reports">Reports</a>
+      </div>
     {% endif %}
   </div>
 
@@ -41,7 +44,12 @@
           <td class="px-4 py-3">{{ row.last_attempt or '-' }}</td>
           <td class="px-4 py-3">{{ row.last_score if row.last_score is not none else '-' }}</td>
           <td class="px-4 py-3">
-            <a class="text-orange-300 hover:underline" href="/learning/module/{{ row.module_id }}">Start</a>
+            <div class="flex flex-wrap gap-3">
+              <a class="text-orange-300 hover:underline" href="/learning/module/{{ row.module_id }}">Start</a>
+              {% if row.status == 'passed' and row.certificate_date %}
+                <a class="text-orange-300 hover:underline" href="/learning/certificate/{{ row.module_id }}">Certificate</a>
+              {% endif %}
+            </div>
           </td>
         </tr>
         {% endfor %}

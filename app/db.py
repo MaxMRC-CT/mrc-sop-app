@@ -33,6 +33,7 @@ def init_db() -> None:
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'staff',
             staff_id INTEGER,
+            must_reset_password INTEGER NOT NULL DEFAULT 0,
             active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (staff_id) REFERENCES staff(id)
@@ -119,6 +120,11 @@ def init_db() -> None:
         );
         """
     )
+
+    # Migration: users table additions
+    user_columns = _column_names(cur, "users")
+    if "must_reset_password" not in user_columns:
+        cur.execute("ALTER TABLE users ADD COLUMN must_reset_password INTEGER NOT NULL DEFAULT 0")
 
     # Migration: remove old unique constraint on acknowledgments (sop_id, staff_id)
     if "ack_unique" in _index_names(cur, "acknowledgments"):

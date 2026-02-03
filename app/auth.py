@@ -15,6 +15,7 @@ class User:
     username: str
     role: str
     staff_id: Optional[int]
+    must_reset_password: int
     active: int
 
 
@@ -40,7 +41,7 @@ def authenticate(username: str, password: str) -> Optional[User]:
     conn = get_connection()
     cur = conn.cursor()
     row = cur.execute(
-        "SELECT id, username, password_hash, role, staff_id, active FROM users WHERE username = ?",
+        "SELECT id, username, password_hash, role, staff_id, must_reset_password, active FROM users WHERE username = ?",
         (username,),
     ).fetchone()
     conn.close()
@@ -53,6 +54,7 @@ def authenticate(username: str, password: str) -> Optional[User]:
         username=row["username"],
         role=row["role"],
         staff_id=row["staff_id"],
+        must_reset_password=row["must_reset_password"],
         active=row["active"],
     )
 
@@ -64,7 +66,7 @@ def get_current_user(request: Request) -> Optional[User]:
     conn = get_connection()
     cur = conn.cursor()
     row = cur.execute(
-        "SELECT id, username, role, staff_id, active FROM users WHERE id = ?",
+        "SELECT id, username, role, staff_id, must_reset_password, active FROM users WHERE id = ?",
         (user_id,),
     ).fetchone()
     conn.close()
@@ -75,6 +77,7 @@ def get_current_user(request: Request) -> Optional[User]:
         username=row["username"],
         role=row["role"],
         staff_id=row["staff_id"],
+        must_reset_password=row["must_reset_password"],
         active=row["active"],
     )
 

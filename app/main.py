@@ -93,6 +93,8 @@ def login_action(request: Request, username: str = Form(...), password: str = Fo
     if not user:
         return _template("login.html", request, {"request": request, "error": "Invalid credentials"})
     request.session["user_id"] = user.id
+    if user.must_reset_password == 1:
+        return RedirectResponse(url="/account?force=1", status_code=303)
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -107,7 +109,8 @@ def account_page(request: Request):
     user = get_current_user(request)
     if not user:
         return _redirect_login()
-    return _template("account.html", request, {"request": request, "error": None, "message": None})
+    force = request.query_params.get("force") == "1" or user.must_reset_password == 1
+    return _template("account.html", request, {"request": request, "error": None, "message": None, "force": force})
 
 
 @app.post("/account")
@@ -123,6 +126,8 @@ def account_update(
 
     if new_password != confirm_password:
         return _template("account.html", request, {"request": request, "error": "Passwords do not match", "message": None})
+    if len(new_password) < 8:
+        return _template("account.html", request, {"request": request, "error": "Password must be at least 8 characters", "message": None})
 
     conn = get_connection()
     cur = conn.cursor()
@@ -131,13 +136,16 @@ def account_update(
         conn.close()
         return _template("account.html", request, {"request": request, "error": "Current password is incorrect", "message": None})
 
-    cur.execute("UPDATE users SET password_hash = ? WHERE id = ?", (create_password_hash(new_password), user.id))
+    cur.execute(
+        "UPDATE users SET password_hash = ?, must_reset_password = 0 WHERE id = ?",
+        (create_password_hash(new_password), user.id),
+    )
     conn.commit()
     conn.close()
 
     _log_action(user.id, "password_change", "user", user.id, "self-service")
 
-    return _template("account.html", request, {"request": request, "error": None, "message": "Password updated."})
+    return _template("account.html", request, {"request": request, "error": None, "message": "Password updated.", "force": False})
 
 
 @app.get("/")
@@ -514,6 +522,7 @@ def admin_users_new(
     password: str = Form(...),
     role: str = Form(...),
     staff_id: Optional[int] = Form(None),
+    must_reset_password: Optional[str] = Form(None),
 ):
     try:
         user = require_admin(request)
@@ -533,9 +542,12 @@ def admin_users_new(
             "SELECT id FROM staff WHERE normalized_name = ?",
             (name.lower(),),
         ).fetchone()[0]
+    reset_flag = 1 if must_reset_password else 0
+    if role == "staff" and must_reset_password is None:
+        reset_flag = 1
     cur.execute(
-        "INSERT INTO users (username, password_hash, role, staff_id) VALUES (?, ?, ?, ?)",
-        (username.strip(), create_password_hash(password), role, linked_staff_id),
+        "INSERT INTO users (username, password_hash, role, staff_id, must_reset_password) VALUES (?, ?, ?, ?, ?)",
+        (username.strip(), create_password_hash(password), role, linked_staff_id, reset_flag),
     )
     conn.commit()
     conn.close()
@@ -572,7 +584,13 @@ def admin_users_password(request: Request, user_id: int, new_password: str = For
 
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("UPDATE users SET password_hash = ? WHERE id = ?", (create_password_hash(new_password), user_id))
+    if len(new_password) < 8:
+        conn.close()
+        return RedirectResponse(url="/admin/users", status_code=303)
+    cur.execute(
+        "UPDATE users SET password_hash = ?, must_reset_password = 1 WHERE id = ?",
+        (create_password_hash(new_password), user_id),
+    )
     conn.commit()
     conn.close()
 
@@ -619,7 +637,13 @@ def admin_evidence(request: Request, sop_id: int):
 
 
 @app.get("/admin/audit")
-def admin_audit(request: Request):
+def admin_audit(
+    request: Request,
+    user: Optional[str] = None,
+    action: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
     try:
         require_admin(request)
     except PermissionError:
@@ -627,19 +651,51 @@ def admin_audit(request: Request):
 
     conn = get_connection()
     cur = conn.cursor()
+    where = "WHERE 1=1"
+    params: list[str] = []
+    if user:
+        where += " AND users.username = ?"
+        params.append(user)
+    if action:
+        where += " AND audit_log.action = ?"
+        params.append(action)
+    if start_date:
+        where += " AND date(audit_log.created_at) >= date(?)"
+        params.append(start_date)
+    if end_date:
+        where += " AND date(audit_log.created_at) <= date(?)"
+        params.append(end_date)
+
     logs = cur.execute(
-        """
+        f"""
         SELECT audit_log.created_at, audit_log.action, audit_log.entity_type, audit_log.entity_id,
                audit_log.details, users.username
         FROM audit_log
         LEFT JOIN users ON users.id = audit_log.actor_user_id
+        {where}
         ORDER BY audit_log.created_at DESC
         LIMIT 200
-        """
+        """,
+        params,
     ).fetchall()
+    users = cur.execute("SELECT username FROM users ORDER BY username").fetchall()
+    actions = cur.execute("SELECT DISTINCT action FROM audit_log ORDER BY action").fetchall()
     conn.close()
 
-    return _template("audit_log.html", request, {"request": request, "logs": logs})
+    return _template(
+        "audit_log.html",
+        request,
+        {
+            "request": request,
+            "logs": logs,
+            "users": users,
+            "actions": actions,
+            "selected_user": user or "",
+            "selected_action": action or "",
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+        },
+    )
 
 
 @app.get("/admin/export/acknowledgments.csv")

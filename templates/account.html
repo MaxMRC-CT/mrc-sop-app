@@ -2,7 +2,12 @@
 {% block content %}
 <div class="max-w-xl bg-[#2f3640] border border-white/10 rounded-2xl p-6">
   <h1 class="text-2xl font-semibold mb-2">Account</h1>
-  <p class="text-sm text-white/60 mb-4">Update your password.</p>
+  <p class="text-sm text-white/60 mb-4">Update your password. Minimum 8 characters.</p>
+  {% if force %}
+    <div class="bg-amber-500/20 border border-amber-500/40 text-amber-100 text-sm rounded-lg p-3 mb-4">
+      You must change your password before continuing.
+    </div>
+  {% endif %}
   {% if message %}
     <div class="bg-green-500/20 border border-green-500/40 text-green-100 text-sm rounded-lg p-3 mb-4">{{ message }}</div>
   {% endif %}

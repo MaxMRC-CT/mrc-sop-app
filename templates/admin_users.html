@@ -25,6 +25,10 @@
         <option value="{{ s.id }}">{{ s.name }}</option>
       {% endfor %}
     </select>
+    <label class="text-xs text-white/70 flex items-center gap-2 md:col-span-4">
+      <input type="checkbox" name="must_reset_password" checked class="h-4 w-4" />
+      Force password change on first login
+    </label>
     <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold md:col-span-4 w-fit">Create User</button>
   </form>
 

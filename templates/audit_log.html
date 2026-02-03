@@ -9,6 +9,24 @@
     <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/admin">Back to Admin</a>
   </div>
 
+  <form method="get" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+    <select name="user" class="bg-transparent border border-white/10 rounded-lg px-3 py-2 text-white">
+      <option value="">All Users</option>
+      {% for u in users %}
+        <option value="{{ u.username }}" {% if selected_user == u.username %}selected{% endif %}>{{ u.username }}</option>
+      {% endfor %}
+    </select>
+    <select name="action" class="bg-transparent border border-white/10 rounded-lg px-3 py-2 text-white">
+      <option value="">All Actions</option>
+      {% for a in actions %}
+        <option value="{{ a.action }}" {% if selected_action == a.action %}selected{% endif %}>{{ a.action }}</option>
+      {% endfor %}
+    </select>
+    <input type="date" name="start_date" value="{{ start_date }}" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <input type="date" name="end_date" value="{{ end_date }}" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold md:col-span-4 w-fit">Filter</button>
+  </form>
+
   <div class="bg-[#2f3640] border border-white/10 rounded-2xl overflow-hidden">
     <table class="w-full text-sm">
       <thead class="bg-white/5 text-white/60">

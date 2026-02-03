@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .db import get_connection, init_db
 from .seed import import_sops
+from .learning import seed_modules, module_status
 from .auth import authenticate, ensure_default_admin, get_current_user, require_admin, require_login, create_password_hash, verify_password
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -796,6 +797,210 @@ def export_sops(request: Request):
     return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=sops.csv"})
 
 
+
+
+@app.get("/learning")
+def learning_home(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    modules = cur.execute(
+        """
+        SELECT training_modules.id AS module_id, training_modules.title, sops.category, training_modules.passing_score
+        FROM training_modules
+        JOIN sops ON sops.id = training_modules.sop_id
+        WHERE training_modules.active = 1
+        ORDER BY training_modules.title
+        """
+    ).fetchall()
+    conn.close()
+
+    rows = []
+    for m in modules:
+        status, last_attempt, last_score = ("not_started", None, None)
+        if user.staff_id:
+            status, last_attempt, last_score = module_status(m["module_id"], user.staff_id)
+        rows.append(
+            {
+                "module_id": m["module_id"],
+                "title": m["title"],
+                "category": m["category"],
+                "status": status,
+                "last_attempt": last_attempt,
+                "last_score": last_score,
+            }
+        )
+
+    is_admin = user.role in ("admin", "training_lead")
+    return _template(
+        "learning.html",
+        request,
+        {"request": request, "modules": rows, "passing_score": 80, "is_admin": is_admin},
+    )
+
+
+@app.get("/learning/module/{module_id}")
+def learning_module(request: Request, module_id: int):
+    user = get_current_user(request)
+    if not user:
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    module = cur.execute("SELECT * FROM training_modules WHERE id = ?", (module_id,)).fetchone()
+    question = cur.execute(
+        "SELECT * FROM training_questions WHERE module_id = ? ORDER BY id LIMIT 1",
+        (module_id,),
+    ).fetchone()
+    conn.close()
+
+    if not module:
+        return RedirectResponse(url="/learning", status_code=302)
+
+    return _template("learning_module.html", request, {"request": request, "module": module, "question": question})
+
+
+@app.post("/learning/module/{module_id}")
+def learning_module_submit(request: Request, module_id: int, answer: str = Form(...)):
+    user = get_current_user(request)
+    if not user:
+        return _redirect_login()
+
+    if not user.staff_id:
+        return RedirectResponse(url="/learning", status_code=303)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    module = cur.execute("SELECT * FROM training_modules WHERE id = ?", (module_id,)).fetchone()
+    question = cur.execute(
+        "SELECT * FROM training_questions WHERE module_id = ? ORDER BY id LIMIT 1",
+        (module_id,),
+    ).fetchone()
+
+    if not module or not question:
+        conn.close()
+        return RedirectResponse(url="/learning", status_code=303)
+
+    is_correct = answer.upper() == (question["correct_option"] or "").upper()
+    score = 100 if is_correct else 0
+    passed = 1 if score >= module["passing_score"] else 0
+
+    cur.execute(
+        "INSERT INTO training_attempts (module_id, staff_id, score, passed) VALUES (?, ?, ?, ?)",
+        (module_id, user.staff_id, score, passed),
+    )
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "training_attempt", "module", module_id, f"score={score}")
+
+    return RedirectResponse(url="/learning", status_code=303)
+
+
+@app.get("/learning/admin")
+def learning_admin(request: Request):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    modules = cur.execute(
+        """
+        SELECT training_modules.*, training_questions.question_text
+        FROM training_modules
+        LEFT JOIN training_questions ON training_questions.module_id = training_modules.id
+        ORDER BY training_modules.title
+        """
+    ).fetchall()
+    conn.close()
+
+    return _template("learning_admin.html", request, {"request": request, "modules": modules})
+
+
+@app.post("/learning/admin/seed")
+def learning_admin_seed(request: Request):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    created = seed_modules()
+    _log_action(user.id, "seed", "training", None, f"created={created}")
+    return RedirectResponse(url="/learning/admin", status_code=303)
+
+
+@app.get("/learning/admin/module/{module_id}")
+def learning_admin_edit(request: Request, module_id: int):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    module = cur.execute("SELECT * FROM training_modules WHERE id = ?", (module_id,)).fetchone()
+    question = cur.execute("SELECT * FROM training_questions WHERE module_id = ?", (module_id,)).fetchone()
+    conn.close()
+
+    if not module:
+        return RedirectResponse(url="/learning/admin", status_code=302)
+
+    return _template(
+        "learning_admin_edit.html",
+        request,
+        {"request": request, "module": module, "question": question},
+    )
+
+
+@app.post("/learning/admin/module/{module_id}")
+def learning_admin_update(
+    request: Request,
+    module_id: int,
+    passing_score: int = Form(...),
+    recert_days: int = Form(...),
+    question_text: str = Form(...),
+    option_a: str = Form(...),
+    option_b: str = Form(...),
+    option_c: str = Form(...),
+    option_d: str = Form(...),
+    correct_option: str = Form(...),
+):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE training_modules SET passing_score = ?, recert_days = ?, updated_at = datetime('now') WHERE id = ?",
+        (passing_score, recert_days, module_id),
+    )
+    exists = cur.execute("SELECT id FROM training_questions WHERE module_id = ?", (module_id,)).fetchone()
+    if exists:
+        cur.execute(
+            """
+            UPDATE training_questions
+            SET question_text = ?, option_a = ?, option_b = ?, option_c = ?, option_d = ?, correct_option = ?
+            WHERE module_id = ?
+            """,
+            (question_text, option_a, option_b, option_c, option_d, correct_option.upper(), module_id),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO training_questions (module_id, question_text, option_a, option_b, option_c, option_d, correct_option)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (module_id, question_text, option_a, option_b, option_c, option_d, correct_option.upper()),
+        )
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "update", "training_module", module_id, "question_updated")
+
+    return RedirectResponse(url="/learning/admin", status_code=303)
 @app.get("/compliance")
 def compliance_dashboard(
     request: Request,

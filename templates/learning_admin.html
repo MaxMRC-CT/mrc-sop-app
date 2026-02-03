@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex flex-col gap-6">
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-semibold">Learning Management - Admin</h1>
+      <p class="text-sm text-white/60">One module per SOP, with a single quiz question.</p>
+    </div>
+    <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/learning">Back to Learning</a>
+  </div>
+
+  <div class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
+    <form method="post" action="/learning/admin/seed" class="flex flex-col md:flex-row gap-3 md:items-center">
+      <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold">Create Modules From SOPs</button>
+      <p class="text-xs text-white/60">Creates missing modules for all SOPs.</p>
+    </form>
+  </div>
+
+  <div class="bg-[#2f3640] border border-white/10 rounded-2xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-white/5 text-white/60">
+        <tr>
+          <th class="text-left px-4 py-3">SOP</th>
+          <th class="text-left px-4 py-3">Passing</th>
+          <th class="text-left px-4 py-3">Recert</th>
+          <th class="text-left px-4 py-3">Question</th>
+          <th class="text-left px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in modules %}
+        <tr class="border-t border-white/10">
+          <td class="px-4 py-3">{{ m.title }}</td>
+          <td class="px-4 py-3">{{ m.passing_score }}%</td>
+          <td class="px-4 py-3">{{ m.recert_days }} days</td>
+          <td class="px-4 py-3">{{ m.question_text or 'Not set' }}</td>
+          <td class="px-4 py-3">
+            <a class="text-orange-300 hover:underline" href="/learning/admin/module/{{ m.id }}">Edit</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

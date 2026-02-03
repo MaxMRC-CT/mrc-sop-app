@@ -121,6 +121,56 @@ def init_db() -> None:
         """
     )
 
+    # Learning Management
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_modules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sop_id INTEGER NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            description TEXT,
+            passing_score INTEGER NOT NULL DEFAULT 80,
+            recert_days INTEGER NOT NULL DEFAULT 365,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (sop_id) REFERENCES sops(id)
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id INTEGER NOT NULL,
+            question_text TEXT NOT NULL,
+            option_a TEXT NOT NULL,
+            option_b TEXT NOT NULL,
+            option_c TEXT NOT NULL,
+            option_d TEXT NOT NULL,
+            correct_option TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (module_id) REFERENCES training_modules(id)
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id INTEGER NOT NULL,
+            staff_id INTEGER NOT NULL,
+            score INTEGER NOT NULL,
+            passed INTEGER NOT NULL DEFAULT 0,
+            attempted_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (module_id) REFERENCES training_modules(id),
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
+        );
+        """
+    )
+
     # Migration: users table additions
     user_columns = _column_names(cur, "users")
     if "must_reset_password" not in user_columns:

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex flex-col gap-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold">Edit Module</h1>
+      <p class="text-sm text-white/60">{{ module.title }}</p>
+    </div>
+    <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/learning/admin">Back</a>
+  </div>
+
+  <form method="post" class="bg-[#2f3640] border border-white/10 rounded-2xl p-5 sm:p-6 flex flex-col gap-4">
+    <label class="text-sm font-semibold">Passing Score (%)
+      <input type="number" name="passing_score" min="1" max="100" value="{{ module.passing_score }}" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">Recertification Days
+      <input type="number" name="recert_days" min="30" max="3650" value="{{ module.recert_days }}" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">Question
+      <input type="text" name="question_text" value="{{ question.question_text if question else '' }}" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">Option A
+      <input type="text" name="option_a" value="{{ question.option_a if question else '' }}" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">Option B
+      <input type="text" name="option_b" value="{{ question.option_b if question else '' }}" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">Option C
+      <input type="text" name="option_c" value="{{ question.option_c if question else '' }}" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">Option D
+      <input type="text" name="option_d" value="{{ question.option_d if question else '' }}" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">Correct Option (A/B/C/D)
+      <input type="text" name="correct_option" value="{{ question.correct_option if question else '' }}" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold w-fit">Save</button>
+  </form>
+</div>
+{% endblock %}

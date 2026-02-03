@@ -1238,6 +1238,38 @@ def compliance_dashboard(
     total_ack_pairs = sum(ack_by_sop.values())
     overall_percent = (total_ack_pairs / total_required * 100) if total_required else 0
 
+    # LMS compliance snapshot
+    modules = cur.execute(
+        "SELECT id, title, recert_days FROM training_modules WHERE active = 1 ORDER BY title"
+    ).fetchall()
+    module_count = len(modules)
+    lms_staff_rows = []
+    lms_overdue_rows = []
+    if staff and modules:
+        for s in staff:
+            completed = 0
+            for m in modules:
+                last_pass = cur.execute(
+                    """
+                    SELECT attempted_at FROM training_attempts
+                    WHERE module_id = ? AND staff_id = ? AND passed = 1
+                    ORDER BY attempted_at DESC
+                    LIMIT 1
+                    """,
+                    (m["id"], s["id"]),
+                ).fetchone()
+                if last_pass:
+                    last_date = datetime.strptime(last_pass["attempted_at"], "%Y-%m-%d %H:%M:%S").date()
+                    due_date = last_date + timedelta(days=m["recert_days"])
+                    if date.today() <= due_date:
+                        completed += 1
+                    else:
+                        lms_overdue_rows.append({"staff": s["name"], "module": m["title"], "due": str(due_date)})
+                else:
+                    lms_overdue_rows.append({"staff": s["name"], "module": m["title"], "due": "Not started"})
+            percent = (completed / module_count * 100) if module_count else 0
+            lms_staff_rows.append({"staff": s["name"], "completed": completed, "total": module_count, "percent": percent})
+
     conn.close()
 
     return _template(
@@ -1258,5 +1290,8 @@ def compliance_dashboard(
             "start_date": start_date or "",
             "end_date": end_date or "",
             "reack_days": REACK_DAYS,
+            "lms_staff_rows": lms_staff_rows,
+            "lms_overdue_rows": lms_overdue_rows,
+            "lms_module_count": module_count,
         },
     )

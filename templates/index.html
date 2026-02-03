@@ -2,6 +2,24 @@
 {% block content %}
 
 <div class="flex flex-col gap-6">
+  <input id="filters-toggle" type="checkbox" class="peer hidden" />
+  <label for="filters-toggle" class="fixed inset-0 bg-black/60 hidden peer-checked:block z-30"></label>
+  <aside class="fixed left-0 top-0 h-full w-72 bg-[#2f3640] border-r border-white/10 p-5 -translate-x-full peer-checked:translate-x-0 transition-transform duration-300 z-40 lg:hidden">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold text-white/70">Categories</h2>
+      <label for="filters-toggle" class="text-white/60 text-sm cursor-pointer">Close</label>
+    </div>
+    <div class="space-y-1">
+      <a href="/" class="block px-3 py-2 rounded-lg hover:bg-white/5 {% if category == 'All' %}bg-white/5 font-semibold{% endif %}">
+        All SOPs
+      </a>
+      {% for c in categories %}
+      <a href="/?category={{ c }}" class="block px-3 py-2 rounded-lg hover:bg-white/5 {% if category == c %}bg-white/5 font-semibold{% endif %}">
+        {{ c }}
+      </a>
+      {% endfor %}
+    </div>
+  </aside>
 
   <form method="get" action="/" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row gap-3 md:items-center">
     <input
@@ -45,8 +63,13 @@
     <section class="flex-1">
       <div class="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2 mb-4">
         <h1 class="text-2xl font-semibold">Policies and Procedures Dashboard</h1>
-        <div class="text-sm text-white/60">
-          {{ total }} Policies
+        <div class="flex items-center gap-3">
+          <label for="filters-toggle" class="sm:hidden border border-white/10 rounded-lg px-3 py-1.5 text-sm hover:bg-white/5 cursor-pointer">
+            Filters
+          </label>
+          <div class="text-sm text-white/60">
+            {{ total }} Policies
+          </div>
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from threading import Thread
 import csv
 import io
 import os
@@ -78,7 +79,7 @@ def on_startup() -> None:
     count = cur.execute("SELECT COUNT(*) AS c FROM sops").fetchone()["c"]
     conn.close()
     if count == 0:
-        import_sops()
+        Thread(target=import_sops, daemon=True).start()
 
 
 @app.get("/login")

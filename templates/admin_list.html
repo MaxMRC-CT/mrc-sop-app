@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex flex-col gap-6">
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-semibold">Admin - SOP Library</h1>
+      <p class="text-sm text-white/60">Add, edit, and maintain SOPs.</p>
+    </div>
+    <div class="flex gap-3">
+      <a class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold" href="/admin/new">Add SOP</a>
+      <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/admin/staff">Manage Staff</a>
+    </div>
+  </div>
+
+  <div class="bg-[#2f3640] border border-white/10 rounded-2xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-white/5 text-white/60">
+        <tr>
+          <th class="text-left px-4 py-3">Title</th>
+          <th class="text-left px-4 py-3">Category</th>
+          <th class="text-left px-4 py-3">Updated</th>
+          <th class="text-left px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sop in sops %}
+        <tr class="border-t border-white/10">
+          <td class="px-4 py-3">{{ sop.title }}</td>
+          <td class="px-4 py-3">{{ sop.category }}</td>
+          <td class="px-4 py-3">{{ sop.updated_at }}</td>
+          <td class="px-4 py-3"><a class="text-orange-300 hover:underline" href="/admin/edit/{{ sop.id }}">Edit</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

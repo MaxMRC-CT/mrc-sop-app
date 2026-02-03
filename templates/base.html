@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mulligan SOP Portal</title>
+    <link rel="icon" href="/static/brand/favicons/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/brand/favicons/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/brand/favicons/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/brand/favicons/apple-touch-icon.png" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --mrc-black: #0b0b0b;
+        --mrc-deep: #2b313a;
+        --mrc-card: #1f232a;
+        --mrc-line: rgba(255, 255, 255, 0.12);
+        --mrc-orange: #f37021;
+        --mrc-orange-2: #f6a623;
+      }
+      body { font-family: "Poppins", system-ui, sans-serif; }
+      .mrc-gradient {
+        background: linear-gradient(135deg, var(--mrc-orange), var(--mrc-orange-2));
+      }
+      .mrc-glow {
+        box-shadow: 0 0 30px rgba(243, 112, 33, 0.18);
+      }
+    </style>
+</head>
+<body class="bg-[#2b313a] text-white">
+
+<header class="bg-[#2b313a] border-b border-white/10">
+  <div class="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-4">
+      <img src="/static/brand/mrc-circle-logo.png" alt="MRC" class="h-12 w-12" />
+      <div>
+        <div class="text-xl font-semibold">Mulligan Recovery Centers</div>
+        <div class="text-sm text-white/70">Real Recovery. Real People. Real Simple.</div>
+      </div>
+    </div>
+    <nav class="text-sm flex gap-6">
+      <a href="/" class="hover:text-orange-300">Dashboard</a>
+      <a href="/compliance" class="hover:text-orange-300">Compliance</a>
+      <a href="/admin" class="hover:text-orange-300">Admin</a>
+    </nav>
+  </div>
+  <div class="h-1 mrc-gradient"></div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-8">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="max-w-7xl mx-auto px-6 py-8 text-xs text-white/60">
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    <div>Internal use only. Updated SOPs should be reviewed by compliance.</div>
+    <img src="/static/brand/mrc-logo.png" alt="Mulligan Recovery Centers" class="h-6 opacity-80" />
+  </div>
+</footer>
+
+</body>
+</html>

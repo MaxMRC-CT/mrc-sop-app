@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="flex flex-col gap-6">
+
+  <form method="get" action="/" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row gap-3 md:items-center">
+    <input
+      type="text"
+      name="q"
+      value="{{ q }}"
+      placeholder="Search SOPs (e.g., medication, intake, incident)"
+      class="flex-1 bg-transparent border border-white/10 rounded-lg px-3 py-2 text-white placeholder-white/40"
+    />
+
+    <select name="category" class="bg-transparent border border-white/10 rounded-lg px-3 py-2 md:w-64 text-white">
+      <option value="All" {% if category == "All" %}selected{% endif %}>All</option>
+      {% for c in categories %}
+      <option value="{{ c }}" {% if category == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+
+    <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold hover:opacity-90">
+      Search
+    </button>
+  </form>
+
+  <div class="flex gap-8">
+
+    <aside class="w-64 hidden lg:block">
+      <div class="sticky top-6">
+        <h2 class="text-xs font-semibold text-white/50 mb-3">CATEGORIES</h2>
+        <div class="bg-[#2f3640] border border-white/10 rounded-2xl p-3">
+          <a href="/" class="block px-3 py-2 rounded-lg hover:bg-white/5 {% if category == 'All' %}bg-white/5 font-semibold{% endif %}">
+            All SOPs
+          </a>
+          {% for c in categories %}
+          <a href="/?category={{ c }}" class="block px-3 py-2 rounded-lg hover:bg-white/5 {% if category == c %}bg-white/5 font-semibold{% endif %}">
+            {{ c }}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </aside>
+
+    <section class="flex-1">
+      <div class="flex items-baseline justify-between mb-4">
+        <h1 class="text-2xl font-semibold">Policies and Procedures Dashboard</h1>
+        <div class="text-sm text-white/60">
+          {{ total }} Policies
+        </div>
+      </div>
+
+      {% for cat, sops in grouped.items() %}
+      <div class="mb-10">
+        <h2 class="text-lg font-semibold mb-3 border-b border-white/10 pb-2">{{ cat }}</h2>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {% for sop in sops %}
+          <a href="/sop/{{ sop[0] }}" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 hover:shadow-lg hover:shadow-orange-500/10 transition">
+            <div class="text-xs text-white/50 mb-2">{{ sop[2] }}</div>
+            <div class="font-semibold leading-snug">{{ sop[1] }}</div>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </section>
+
+  </div>
+</div>
+
+{% endblock %}

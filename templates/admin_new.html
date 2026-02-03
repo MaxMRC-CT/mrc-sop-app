@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-3xl bg-[#2f3640] border border-white/10 rounded-2xl p-6">
+  <h1 class="text-2xl font-semibold mb-4">Add SOP</h1>
+  <form method="post" class="flex flex-col gap-4">
+    <label class="text-sm font-semibold">Title
+      <input type="text" name="title" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">Category
+      <input type="text" name="category" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    </label>
+    <label class="text-sm font-semibold">Procedure
+      <textarea name="content" rows="16" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2"></textarea>
+    </label>
+    <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold w-fit">Create SOP</button>
+  </form>
+</div>
+{% endblock %}

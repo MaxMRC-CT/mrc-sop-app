@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex flex-col gap-6">
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-semibold">Compliance Dashboard</h1>
+      <p class="text-sm text-white/60">Overall SOP acknowledgment compliance.</p>
+    </div>
+    <form method="get" class="flex flex-col md:flex-row gap-3 items-end">
+      <label class="text-xs font-semibold text-white/60">Start Date
+        <input type="date" name="start_date" value="{{ start_date }}" class="mt-1 bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+      </label>
+      <label class="text-xs font-semibold text-white/60">End Date
+        <input type="date" name="end_date" value="{{ end_date }}" class="mt-1 bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+      </label>
+      <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold">Apply</button>
+    </form>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
+      <div class="text-sm text-white/60">Active Staff</div>
+      <div class="text-2xl font-semibold">{{ staff_count }}</div>
+    </div>
+    <div class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
+      <div class="text-sm text-white/60">SOPs</div>
+      <div class="text-2xl font-semibold">{{ sop_count }}</div>
+    </div>
+    <div class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
+      <div class="text-sm text-white/60">Overall Compliance</div>
+      <div class="text-2xl font-semibold">{{ '%.1f' % overall_percent }}%</div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
+      <h2 class="text-lg font-semibold mb-3">Compliance by Category</h2>
+      <div class="space-y-3">
+        {% for cat, count in sop_counts_by_category.items() %}
+          {% set total = count * staff_count %}
+          {% set acked = ack_by_category.get(cat, 0) %}
+          {% set percent = (acked / total * 100) if total else 0 %}
+          <div>
+            <div class="flex justify-between text-sm mb-1">
+              <span>{{ cat }}</span>
+              <span>{{ '%.1f' % percent }}%</span>
+            </div>
+            <div class="h-2 bg-white/10 rounded-full">
+              <div class="h-2 mrc-gradient rounded-full" style="width: {{ percent }}%"></div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
+      <h2 class="text-lg font-semibold mb-3">Staff Completion</h2>
+      <div class="space-y-2 text-sm">
+        {% for person in staff_completion %}
+          <div class="flex justify-between border-b border-white/10 py-2">
+            <span>{{ person.name }}</span>
+            <span>{{ person.acked }}/{{ person.total }} ({{ '%.1f' % person.percent }}%)</span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
+    <h2 class="text-lg font-semibold mb-3">Compliance by SOP</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+      {% for sop in sops %}
+        {% set acked = ack_by_sop.get(sop.id, 0) %}
+        {% set total = staff_count %}
+        {% set percent = (acked / total * 100) if total else 0 %}
+        <div class="border border-white/10 rounded-xl p-3">
+          <div class="font-semibold">{{ sop.title }}</div>
+          <div class="text-white/50 text-xs mb-1">{{ sop.category }}</div>
+          <div class="flex justify-between mb-1">
+            <span>{{ acked }}/{{ total }} staff</span>
+            <span>{{ '%.1f' % percent }}%</span>
+          </div>
+          <div class="h-2 bg-white/10 rounded-full">
+            <div class="h-2 mrc-gradient rounded-full" style="width: {{ percent }}%"></div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
+      <h2 class="text-lg font-semibold mb-3">Recent Acknowledgments</h2>
+      <ul class="text-sm">
+        {% for ack in recent_acks %}
+          <li class="border-b border-white/10 py-2">
+            <div class="font-semibold">{{ ack.staff_name }}</div>
+            <div class="text-white/50">{{ ack.sop_title }} — {{ ack.acknowledged_at }}</div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
+      <h2 class="text-lg font-semibold mb-3">Overdue / Missing Acknowledgments</h2>
+      {% if overdue|length == 0 %}
+        <p class="text-sm text-white/60">All active staff have acknowledged all SOPs.</p>
+      {% else %}
+        <div class="space-y-3 text-sm">
+          {% for item in overdue %}
+            <div class="border border-white/10 rounded-xl p-3">
+              <div class="font-semibold mb-1">{{ item.sop_title }}</div>
+              <div class="text-white/60">Missing: {{ item.missing | join(', ') }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

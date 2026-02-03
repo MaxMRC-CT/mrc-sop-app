@@ -47,8 +47,63 @@ def init_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             normalized_name TEXT NOT NULL UNIQUE,
+            role TEXT,
+            department TEXT,
+            supervisor TEXT,
+            hire_date TEXT,
             active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS onboarding_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS onboarding_steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_id INTEGER NOT NULL,
+            step_text TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (template_id) REFERENCES onboarding_templates(id)
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS onboarding_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER NOT NULL,
+            template_id INTEGER NOT NULL,
+            assigned_at TEXT NOT NULL DEFAULT (datetime('now')),
+            due_date TEXT,
+            FOREIGN KEY (staff_id) REFERENCES staff(id),
+            FOREIGN KEY (template_id) REFERENCES onboarding_templates(id)
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS onboarding_progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id INTEGER NOT NULL,
+            step_id INTEGER NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0,
+            completed_at TEXT,
+            FOREIGN KEY (assignment_id) REFERENCES onboarding_assignments(id),
+            FOREIGN KEY (step_id) REFERENCES onboarding_steps(id)
         );
         """
     )
@@ -175,6 +230,12 @@ def init_db() -> None:
     user_columns = _column_names(cur, "users")
     if "must_reset_password" not in user_columns:
         cur.execute("ALTER TABLE users ADD COLUMN must_reset_password INTEGER NOT NULL DEFAULT 0")
+
+    # Migration: staff profile fields
+    staff_columns = _column_names(cur, "staff")
+    for col in ["role", "department", "supervisor", "hire_date"]:
+        if col not in staff_columns:
+            cur.execute(f"ALTER TABLE staff ADD COLUMN {col} TEXT")
 
     # Migration: remove old unique constraint on acknowledgments (sop_id, staff_id)
     if "ack_unique" in _index_names(cur, "acknowledgments"):

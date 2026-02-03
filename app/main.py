@@ -802,6 +802,323 @@ def export_sops(request: Request):
 
 
 
+
+
+@app.get("/hr")
+def hr_home(request: Request):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    staff = cur.execute(
+        "SELECT id, name, role, department, hire_date FROM staff WHERE active = 1 ORDER BY name"
+    ).fetchall()
+
+    # onboarding status summary
+    staff_rows = []
+    for s in staff:
+        total_steps = cur.execute(
+            """
+            SELECT COUNT(*) AS c FROM onboarding_progress
+            JOIN onboarding_assignments ON onboarding_assignments.id = onboarding_progress.assignment_id
+            WHERE onboarding_assignments.staff_id = ?
+            """,
+            (s["id"],),
+        ).fetchone()["c"]
+        completed_steps = cur.execute(
+            """
+            SELECT COUNT(*) AS c FROM onboarding_progress
+            JOIN onboarding_assignments ON onboarding_assignments.id = onboarding_progress.assignment_id
+            WHERE onboarding_assignments.staff_id = ? AND onboarding_progress.completed = 1
+            """,
+            (s["id"],),
+        ).fetchone()["c"]
+        status = f"{completed_steps}/{total_steps}" if total_steps else "Not assigned"
+        staff_rows.append(
+            {
+                "id": s["id"],
+                "name": s["name"],
+                "role": s["role"],
+                "department": s["department"],
+                "hire_date": s["hire_date"],
+                "onboarding_status": status,
+            }
+        )
+
+    conn.close()
+
+    return _template("hr.html", request, {"request": request, "staff": staff_rows})
+
+
+@app.get("/hr/staff/{staff_id}")
+def hr_staff_edit(request: Request, staff_id: int):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    staff = cur.execute("SELECT * FROM staff WHERE id = ?", (staff_id,)).fetchone()
+    conn.close()
+
+    if not staff:
+        return RedirectResponse(url="/hr", status_code=302)
+
+    return _template("hr_staff_edit.html", request, {"request": request, "staff": staff})
+
+
+@app.post("/hr/staff/{staff_id}")
+def hr_staff_update(
+    request: Request,
+    staff_id: int,
+    name: str = Form(...),
+    role: str = Form(""),
+    department: str = Form(""),
+    supervisor: str = Form(""),
+    hire_date: str = Form(""),
+):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE staff
+        SET name = ?, role = ?, department = ?, supervisor = ?, hire_date = ?
+        WHERE id = ?
+        """,
+        (name.strip(), role.strip() or None, department.strip() or None, supervisor.strip() or None, hire_date or None, staff_id),
+    )
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "update", "staff_profile", staff_id, name.strip())
+
+    return RedirectResponse(url="/hr", status_code=303)
+
+
+@app.get("/hr/templates")
+def hr_templates(request: Request):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    templates = cur.execute(
+        """
+        SELECT onboarding_templates.id, onboarding_templates.title,
+               COUNT(onboarding_steps.id) AS step_count
+        FROM onboarding_templates
+        LEFT JOIN onboarding_steps ON onboarding_steps.template_id = onboarding_templates.id
+        GROUP BY onboarding_templates.id
+        ORDER BY onboarding_templates.title
+        """
+    ).fetchall()
+    conn.close()
+
+    return _template("hr_templates.html", request, {"request": request, "templates": templates})
+
+
+@app.post("/hr/templates/new")
+def hr_templates_new(request: Request, title: str = Form(...), description: str = Form("")):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO onboarding_templates (title, description) VALUES (?, ?)",
+        (title.strip(), description.strip()),
+    )
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "create", "onboarding_template", None, title.strip())
+
+    return RedirectResponse(url="/hr/templates", status_code=303)
+
+
+@app.get("/hr/templates/{template_id}")
+def hr_template_edit(request: Request, template_id: int):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    template = cur.execute("SELECT * FROM onboarding_templates WHERE id = ?", (template_id,)).fetchone()
+    steps = cur.execute(
+        "SELECT * FROM onboarding_steps WHERE template_id = ? ORDER BY sort_order, id",
+        (template_id,),
+    ).fetchall()
+    conn.close()
+
+    if not template:
+        return RedirectResponse(url="/hr/templates", status_code=302)
+
+    return _template("hr_template_edit.html", request, {"request": request, "template": template, "steps": steps})
+
+
+@app.post("/hr/templates/{template_id}")
+def hr_template_update(request: Request, template_id: int, title: str = Form(...), description: str = Form("")):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE onboarding_templates SET title = ?, description = ? WHERE id = ?",
+        (title.strip(), description.strip(), template_id),
+    )
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "update", "onboarding_template", template_id, title.strip())
+
+    return RedirectResponse(url="/hr/templates", status_code=303)
+
+
+@app.post("/hr/templates/{template_id}/steps")
+def hr_template_steps(request: Request, template_id: int, step_text: str = Form(...)):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    max_sort = cur.execute(
+        "SELECT COALESCE(MAX(sort_order), 0) AS max_sort FROM onboarding_steps WHERE template_id = ?",
+        (template_id,),
+    ).fetchone()["max_sort"]
+    cur.execute(
+        "INSERT INTO onboarding_steps (template_id, step_text, sort_order) VALUES (?, ?, ?)",
+        (template_id, step_text.strip(), max_sort + 1),
+    )
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "create", "onboarding_step", template_id, step_text.strip())
+
+    return RedirectResponse(url=f"/hr/templates/{template_id}", status_code=303)
+
+
+@app.get("/hr/staff/{staff_id}/onboarding")
+def hr_onboarding(request: Request, staff_id: int):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    staff = cur.execute("SELECT * FROM staff WHERE id = ?", (staff_id,)).fetchone()
+    templates = cur.execute("SELECT id, title FROM onboarding_templates ORDER BY title").fetchall()
+
+    assignments = cur.execute(
+        """
+        SELECT onboarding_assignments.id AS assignment_id, onboarding_assignments.due_date, onboarding_templates.title
+        FROM onboarding_assignments
+        JOIN onboarding_templates ON onboarding_templates.id = onboarding_assignments.template_id
+        WHERE onboarding_assignments.staff_id = ?
+        ORDER BY onboarding_assignments.assigned_at DESC
+        """,
+        (staff_id,),
+    ).fetchall()
+
+    assignment_rows = []
+    for a in assignments:
+        steps = cur.execute(
+            """
+            SELECT onboarding_steps.id AS step_id, onboarding_steps.step_text, onboarding_progress.completed
+            FROM onboarding_steps
+            LEFT JOIN onboarding_progress
+              ON onboarding_progress.step_id = onboarding_steps.id
+             AND onboarding_progress.assignment_id = ?
+            WHERE onboarding_steps.template_id = (
+                SELECT template_id FROM onboarding_assignments WHERE id = ?
+            )
+            ORDER BY onboarding_steps.sort_order, onboarding_steps.id
+            """,
+            (a["assignment_id"], a["assignment_id"]),
+        ).fetchall()
+        assignment_rows.append({"assignment_id": a["assignment_id"], "title": a["title"], "due_date": a["due_date"], "steps": steps})
+
+    conn.close()
+
+    if not staff:
+        return RedirectResponse(url="/hr", status_code=302)
+
+    return _template(
+        "hr_onboarding.html",
+        request,
+        {"request": request, "staff": staff, "templates": templates, "assignments": assignment_rows},
+    )
+
+
+@app.post("/hr/staff/{staff_id}/assign")
+def hr_onboarding_assign(request: Request, staff_id: int, template_id: int = Form(...), due_date: str = Form("")):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO onboarding_assignments (staff_id, template_id, due_date) VALUES (?, ?, ?)",
+        (staff_id, template_id, due_date or None),
+    )
+    assignment_id = cur.lastrowid
+    steps = cur.execute(
+        "SELECT id FROM onboarding_steps WHERE template_id = ?",
+        (template_id,),
+    ).fetchall()
+    for s in steps:
+        cur.execute(
+            "INSERT INTO onboarding_progress (assignment_id, step_id, completed) VALUES (?, ?, 0)",
+            (assignment_id, s["id"]),
+        )
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "assign", "onboarding", assignment_id, f"staff_id={staff_id}")
+
+    return RedirectResponse(url=f"/hr/staff/{staff_id}/onboarding", status_code=303)
+
+
+@app.post("/hr/assignment/{assignment_id}/update")
+async def hr_onboarding_update(request: Request, assignment_id: int):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    steps = cur.execute(
+        "SELECT step_id FROM onboarding_progress WHERE assignment_id = ?",
+        (assignment_id,),
+    ).fetchall()
+    form = await request.form()
+    for s in steps:
+        key = f"step_{s['step_id']}"
+        completed = 1 if key in form else 0
+        cur.execute(
+            "UPDATE onboarding_progress SET completed = ?, completed_at = CASE WHEN ? = 1 THEN datetime('now') ELSE NULL END WHERE assignment_id = ? AND step_id = ?",
+            (completed, completed, assignment_id, s["step_id"]),
+        )
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "update", "onboarding_progress", assignment_id, "saved")
+
+    return RedirectResponse(url=request.headers.get("referer", "/hr"), status_code=303)
+
+
 @app.get("/learning")
 def learning_home(request: Request):
     user = get_current_user(request)

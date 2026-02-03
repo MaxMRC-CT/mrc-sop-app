@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex flex-col gap-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold">Onboarding Checklist</h1>
+      <p class="text-sm text-white/60">{{ staff.name }}</p>
+    </div>
+    <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/hr">Back to HR</a>
+  </div>
+
+  <form method="post" action="/hr/staff/{{ staff.id }}/assign" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row gap-3 md:items-center">
+    <select name="template_id" class="bg-transparent border border-white/10 rounded-lg px-3 py-2 text-white" required>
+      <option value="">Assign template</option>
+      {% for t in templates %}
+        <option value="{{ t.id }}">{{ t.title }}</option>
+      {% endfor %}
+    </select>
+    <input type="date" name="due_date" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold">Assign</button>
+  </form>
+
+  {% for a in assignments %}
+    <div class="bg-[#2f3640] border border-white/10 rounded-2xl p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="font-semibold">{{ a.title }}</div>
+          <div class="text-xs text-white/60">Due: {{ a.due_date or 'n/a' }}</div>
+        </div>
+      </div>
+      <form method="post" action="/hr/assignment/{{ a.assignment_id }}/update">
+        <div class="space-y-2 text-sm">
+          {% for step in a.steps %}
+            <label class="flex items-center gap-2">
+              <input type="checkbox" name="step_{{ step.step_id }}" {% if step.completed %}checked{% endif %} />
+              <span>{{ step.step_text }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        <button class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5 mt-3">Save Progress</button>
+      </form>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

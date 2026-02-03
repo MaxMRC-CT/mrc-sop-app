@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="flex flex-col gap-6">
-  <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-6">
+  <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-5 sm:p-6">
     <h1 class="text-2xl font-semibold mb-1">{{ sop.title }}</h1>
     <div class="text-sm text-white/60 mb-4">Category: {{ sop.category }}</div>
     <div class="prose max-w-none text-white/90 whitespace-pre-wrap">{{ sop.content }}</div>
   </section>
 
-  <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-6">
+  <section class="bg-[#2f3640] border border-white/10 rounded-2xl p-5 sm:p-6">
     <h2 class="text-xl font-semibold mb-4">Staff Acknowledged Reading</h2>
     <form method="post" action="/sop/{{ sop.id }}/ack" class="flex flex-col gap-3">
       <label class="text-sm font-semibold">Staff Name

@@ -33,7 +33,7 @@
 <body class="bg-[#2b313a] text-white">
 
 <header class="bg-[#2b313a] border-b border-white/10">
-  <div class="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between gap-4">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
     <div class="flex items-center gap-4">
       <img src="/static/brand/mrc-circle-logo.png" alt="MRC" class="h-12 w-12" />
       <div>
@@ -41,7 +41,7 @@
         <div class="text-sm text-white/70">Real Recovery. Real People. Real Simple.</div>
       </div>
     </div>
-    <nav class="text-sm flex gap-6">
+    <nav class="text-sm flex flex-wrap gap-4 sm:gap-6">
       <a href="/" class="hover:text-orange-300">Dashboard</a>
       <a href="/compliance" class="hover:text-orange-300">Compliance</a>
       <a href="/admin" class="hover:text-orange-300">Admin</a>
@@ -50,7 +50,7 @@
   <div class="h-1 mrc-gradient"></div>
 </header>
 
-<main class="max-w-7xl mx-auto px-6 py-8">
+<main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
   {% block content %}{% endblock %}
 </main>
 

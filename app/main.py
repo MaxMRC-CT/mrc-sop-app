@@ -901,6 +901,77 @@ def hr_staff_update(
     return RedirectResponse(url="/hr", status_code=303)
 
 
+
+
+@app.post("/hr/templates/seed")
+def hr_templates_seed(request: Request):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    templates = [
+        {
+            "title": "Residential Staff Onboarding (ASAM 3.1)",
+            "description": "Starter checklist for residential treatment staff. Adapted from CC BY 4.0 onboarding resources (see references in source control).",
+            "steps": [
+                "Complete HR paperwork (I-9, W-4, direct deposit).",
+                "Review mission, values, and org chart; confirm role expectations.",
+                "Complete HIPAA + 42 CFR Part 2 confidentiality training.",
+                "Review emergency procedures (fire, evacuation, incident reporting).",
+                "Tour facility: medication room, client areas, exits, PPE locations.",
+                "Receive credentials: email, EHR, timekeeping, badge access.",
+                "Review required SOPs: client rights, grievances, admissions, safety.",
+                "Shadow shift with supervisor; document observations.",
+                "Complete medication handling overview (if applicable).",
+                "Review documentation standards and required forms.",
+                "Review client interaction guidelines + de-escalation basics.",
+                "Set 30/60/90-day check-ins with supervisor.",
+            ],
+        },
+        {
+            "title": "Clinical Staff Onboarding (Counselors/Clinicians)",
+            "description": "Starter checklist for clinical roles. Adapted from CC BY 4.0 onboarding resources (see references in source control).",
+            "steps": [
+                "Verify credentials/licensure and required trainings.",
+                "Review treatment planning SOP and documentation timelines.",
+                "Complete EHR training for clinical notes and assessments.",
+                "Review intake/admissions workflow and screening tools.",
+                "Review crisis intervention and emergency response SOPs.",
+                "Review confidentiality/ROI procedures (HIPAA + 42 CFR Part 2).",
+                "Observe group/individual sessions and documentation.",
+                "Review discharge planning and referral processes.",
+                "Establish supervision schedule and clinical expectations.",
+                "Complete first note/assessment with supervisor review.",
+            ],
+        },
+    ]
+
+    created = 0
+    for t in templates:
+        existing = cur.execute("SELECT id FROM onboarding_templates WHERE title = ?", (t["title"],)).fetchone()
+        if existing:
+            continue
+        cur.execute(
+            "INSERT INTO onboarding_templates (title, description) VALUES (?, ?)",
+            (t["title"], t["description"]),
+        )
+        template_id = cur.lastrowid
+        for idx, step in enumerate(t["steps"], start=1):
+            cur.execute(
+                "INSERT INTO onboarding_steps (template_id, step_text, sort_order) VALUES (?, ?, ?)",
+                (template_id, step, idx),
+            )
+        created += 1
+
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "seed", "onboarding_template", None, f"created={created}")
+
+    return RedirectResponse(url="/hr/templates", status_code=303)
 @app.get("/hr/templates")
 def hr_templates(request: Request):
     user = get_current_user(request)

@@ -6,6 +6,13 @@
     <label class="text-sm font-semibold">Name
       <input type="text" name="name" value="{{ staff.name }}" required class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
     </label>
+    <label class="text-sm font-semibold">Staff Type
+      <select name="staff_type" class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2 text-white">
+        <option value="" {% if not staff.staff_type %}selected{% endif %}>Not set</option>
+        <option value="clinical" {% if staff.staff_type == 'clinical' %}selected{% endif %}>Clinical</option>
+        <option value="non_clinical" {% if staff.staff_type == 'non_clinical' %}selected{% endif %}>Non-Clinical</option>
+      </select>
+    </label>
     <label class="text-sm font-semibold">Role
       <input type="text" name="role" value="{{ staff.role or '' }}" class="mt-1 w-full bg-transparent border border-white/10 rounded-lg px-3 py-2" />
     </label>

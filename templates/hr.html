@@ -33,11 +33,18 @@
     <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold w-fit md:col-span-3">Create Staff + Start Onboarding</button>
   </form>
 
+  <form method="post" action="/hr/staff/import" enctype="multipart/form-data" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row gap-3 md:items-center">
+    <input type="file" name="file" accept=".csv" required class="text-sm" />
+    <button class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5 w-fit">Import Staff CSV</button>
+    <div class="text-xs text-white/60">CSV columns: name, staff_type, role, department, supervisor, hire_date, username, password, create_login</div>
+  </form>
+
   <div class="bg-[#2f3640] border border-white/10 rounded-2xl overflow-hidden">
     <table class="w-full text-sm">
       <thead class="bg-white/5 text-white/60">
         <tr>
           <th class="text-left px-4 py-3">Staff</th>
+          <th class="text-left px-4 py-3">Type</th>
           <th class="text-left px-4 py-3">Role</th>
           <th class="text-left px-4 py-3">Department</th>
           <th class="text-left px-4 py-3">Hire Date</th>
@@ -49,6 +56,7 @@
         {% for s in staff %}
         <tr class="border-t border-white/10">
           <td class="px-4 py-3">{{ s.name }}</td>
+          <td class="px-4 py-3">{{ s.staff_type or '-' }}</td>
           <td class="px-4 py-3">{{ s.role or '-' }}</td>
           <td class="px-4 py-3">{{ s.department or '-' }}</td>
           <td class="px-4 py-3">{{ s.hire_date or '-' }}</td>

@@ -47,6 +47,7 @@ def init_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             normalized_name TEXT NOT NULL UNIQUE,
+            staff_type TEXT,
             role TEXT,
             department TEXT,
             supervisor TEXT,
@@ -226,6 +227,20 @@ def init_db() -> None:
         """
     )
 
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id INTEGER NOT NULL,
+            staff_id INTEGER NOT NULL,
+            assigned_at TEXT NOT NULL DEFAULT (datetime('now')),
+            due_date TEXT,
+            FOREIGN KEY (module_id) REFERENCES training_modules(id),
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
+        );
+        """
+    )
+
     # Migration: users table additions
     user_columns = _column_names(cur, "users")
     if "must_reset_password" not in user_columns:
@@ -233,7 +248,7 @@ def init_db() -> None:
 
     # Migration: staff profile fields
     staff_columns = _column_names(cur, "staff")
-    for col in ["role", "department", "supervisor", "hire_date"]:
+    for col in ["staff_type", "role", "department", "supervisor", "hire_date"]:
         if col not in staff_columns:
             cur.execute(f"ALTER TABLE staff ADD COLUMN {col} TEXT")
 

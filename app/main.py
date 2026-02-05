@@ -69,6 +69,12 @@ def _client_info(request: Request) -> tuple[Optional[str], Optional[str]]:
     return ip, agent
 
 
+
+
+def _is_hr(user) -> bool:
+    return user and user.role in ("admin", "hr_manager")
+
+
 def _template(name: str, request: Request, context: dict) -> HTMLResponse:
     context["current_user"] = get_current_user(request)
     return templates.TemplateResponse(name, context)
@@ -804,16 +810,92 @@ def export_sops(request: Request):
 
 
 
+
+
+@app.post("/hr/staff/import")
+def hr_staff_import(request: Request, file: UploadFile = File(...)):
+    user = get_current_user(request)
+    if not _is_hr(user):
+        return _redirect_login()
+
+    content = file.file.read().decode("utf-8", errors="ignore")
+    reader = csv.DictReader(io.StringIO(content))
+
+    conn = get_connection()
+    cur = conn.cursor()
+    count = 0
+    for row in reader:
+        name = (row.get("name") or row.get("Name") or "").strip()
+        if not name:
+            continue
+        staff_type = (row.get("staff_type") or row.get("type") or "non_clinical").strip()
+        role = (row.get("role") or "").strip()
+        department = (row.get("department") or "").strip()
+        supervisor = (row.get("supervisor") or "").strip()
+        hire_date = (row.get("hire_date") or "").strip()
+        username = (row.get("username") or "").strip()
+        password = (row.get("password") or "").strip()
+        create_login = (row.get("create_login") or "").strip().lower() in ("1", "true", "yes", "y")
+
+        normalized = name.lower()
+        cur.execute(
+            "INSERT OR IGNORE INTO staff (name, normalized_name, staff_type, role, department, supervisor, hire_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, normalized, staff_type, role or None, department or None, supervisor or None, hire_date or None),
+        )
+        staff_id = cur.execute("SELECT id FROM staff WHERE normalized_name = ?", (normalized,)).fetchone()[0]
+
+        # Assign onboarding template
+        template_title = "Clinical Staff Onboarding (Counselors/Clinicians)" if staff_type == "clinical" else "Residential Staff Onboarding (ASAM 3.1)"
+        template = cur.execute("SELECT id FROM onboarding_templates WHERE title = ?", (template_title,)).fetchone()
+        if template:
+            cur.execute(
+                "INSERT INTO onboarding_assignments (staff_id, template_id) VALUES (?, ?)",
+                (staff_id, template["id"]),
+            )
+            assignment_id = cur.lastrowid
+            steps = cur.execute("SELECT id FROM onboarding_steps WHERE template_id = ?", (template["id"],)).fetchall()
+            for s in steps:
+                cur.execute(
+                    "INSERT INTO onboarding_progress (assignment_id, step_id, completed) VALUES (?, ?, 0)",
+                    (assignment_id, s["id"]),
+                )
+
+        # Assign training modules
+        modules = cur.execute("SELECT id, title FROM training_modules WHERE active = 1").fetchall()
+        for m in modules:
+            title = (m["title"] or "").lower()
+            if staff_type == "non_clinical":
+                if any(k in title for k in ["medication", "treatment", "clinical", "admissions", "assessment"]):
+                    continue
+            cur.execute(
+                "INSERT INTO training_assignments (module_id, staff_id) VALUES (?, ?)",
+                (m["id"], staff_id),
+            )
+
+        # Optional login
+        if create_login and username and password:
+            cur.execute(
+                "INSERT INTO users (username, password_hash, role, staff_id, must_reset_password) VALUES (?, ?, 'staff', ?, 1)",
+                (username, create_password_hash(password), staff_id),
+            )
+        count += 1
+
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "import", "staff", None, f"count={count}")
+
+    return RedirectResponse(url="/hr", status_code=303)
 @app.get("/hr")
 def hr_home(request: Request):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
     cur = conn.cursor()
     staff = cur.execute(
-        "SELECT id, name, role, department, hire_date FROM staff WHERE active = 1 ORDER BY name"
+        "SELECT id, name, staff_type, role, department, hire_date FROM staff WHERE active = 1 ORDER BY name"
     ).fetchall()
 
     templates = cur.execute(
@@ -877,7 +959,7 @@ def hr_staff_new(
     password: str = Form(""),
 ):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -886,8 +968,8 @@ def hr_staff_new(
     cleaned = name.strip()
     normalized = cleaned.lower()
     cur.execute(
-        "INSERT OR IGNORE INTO staff (name, normalized_name, role, department, supervisor, hire_date) VALUES (?, ?, ?, ?, ?, ?)",
-        (cleaned, normalized, role.strip() or None, department.strip() or None, supervisor.strip() or None, hire_date or None),
+        "INSERT OR IGNORE INTO staff (name, normalized_name, staff_type, role, department, supervisor, hire_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (cleaned, normalized, staff_type, role.strip() or None, department.strip() or None, supervisor.strip() or None, hire_date or None),
     )
     staff_id = cur.execute(
         "SELECT id FROM staff WHERE normalized_name = ?",
@@ -917,6 +999,19 @@ def hr_staff_new(
                 (assignment_id, s["id"]),
             )
 
+
+
+    # Auto-assign training modules based on staff type
+    modules = cur.execute("SELECT id, title FROM training_modules WHERE active = 1").fetchall()
+    for m in modules:
+        title = (m["title"] or "").lower()
+        if staff_type == "non_clinical":
+            if any(k in title for k in ["medication", "treatment", "clinical", "admissions", "assessment"]):
+                continue
+        cur.execute(
+            "INSERT INTO training_assignments (module_id, staff_id) VALUES (?, ?)",
+            (m["id"], staff_id),
+        )
     # Optional: create login for new staff
     if create_login and username.strip() and password.strip():
         cur.execute(
@@ -935,7 +1030,7 @@ def hr_staff_new(
 @app.get("/hr/staff/{staff_id}")
 def hr_staff_edit(request: Request, staff_id: int):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -954,13 +1049,14 @@ def hr_staff_update(
     request: Request,
     staff_id: int,
     name: str = Form(...),
+    staff_type: str = Form(""),
     role: str = Form(""),
     department: str = Form(""),
     supervisor: str = Form(""),
     hire_date: str = Form(""),
 ):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -968,10 +1064,10 @@ def hr_staff_update(
     cur.execute(
         """
         UPDATE staff
-        SET name = ?, role = ?, department = ?, supervisor = ?, hire_date = ?
+        SET name = ?, staff_type = ?, role = ?, department = ?, supervisor = ?, hire_date = ?
         WHERE id = ?
         """,
-        (name.strip(), role.strip() or None, department.strip() or None, supervisor.strip() or None, hire_date or None, staff_id),
+        (name.strip(), staff_type or None, role.strip() or None, department.strip() or None, supervisor.strip() or None, hire_date or None, staff_id),
     )
     conn.commit()
     conn.close()
@@ -986,7 +1082,7 @@ def hr_staff_update(
 @app.post("/hr/templates/seed")
 def hr_templates_seed(request: Request):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1055,7 +1151,7 @@ def hr_templates_seed(request: Request):
 @app.get("/hr/templates")
 def hr_templates(request: Request):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1078,7 +1174,7 @@ def hr_templates(request: Request):
 @app.post("/hr/templates/new")
 def hr_templates_new(request: Request, title: str = Form(...), description: str = Form("")):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1098,7 +1194,7 @@ def hr_templates_new(request: Request, title: str = Form(...), description: str 
 @app.get("/hr/templates/{template_id}")
 def hr_template_edit(request: Request, template_id: int):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1119,7 +1215,7 @@ def hr_template_edit(request: Request, template_id: int):
 @app.post("/hr/templates/{template_id}")
 def hr_template_update(request: Request, template_id: int, title: str = Form(...), description: str = Form("")):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1139,7 +1235,7 @@ def hr_template_update(request: Request, template_id: int, title: str = Form(...
 @app.post("/hr/templates/{template_id}/steps")
 def hr_template_steps(request: Request, template_id: int, step_text: str = Form(...)):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1163,7 +1259,7 @@ def hr_template_steps(request: Request, template_id: int, step_text: str = Form(
 @app.get("/hr/staff/{staff_id}/onboarding")
 def hr_onboarding(request: Request, staff_id: int):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1215,7 +1311,7 @@ def hr_onboarding(request: Request, staff_id: int):
 @app.post("/hr/staff/{staff_id}/assign")
 def hr_onboarding_assign(request: Request, staff_id: int, template_id: int = Form(...), due_date: str = Form("")):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1245,7 +1341,7 @@ def hr_onboarding_assign(request: Request, staff_id: int, template_id: int = For
 @app.post("/hr/assignment/{assignment_id}/update")
 async def hr_onboarding_update(request: Request, assignment_id: int):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1283,9 +1379,12 @@ def learning_home(request: Request):
         SELECT training_modules.id AS module_id, training_modules.title, sops.category, training_modules.passing_score
         FROM training_modules
         JOIN sops ON sops.id = training_modules.sop_id
+        LEFT JOIN training_assignments ON training_assignments.module_id = training_modules.id
         WHERE training_modules.active = 1
+        AND (training_assignments.staff_id IS NULL OR training_assignments.staff_id = ?)
         ORDER BY training_modules.title
-        """
+        """,
+        (user.staff_id,)
     ).fetchall()
     conn.close()
 
@@ -1386,7 +1485,7 @@ def learning_module_submit(request: Request, module_id: int, answer: str = Form(
 @app.get("/learning/reports")
 def learning_reports(request: Request):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1469,7 +1568,7 @@ def learning_certificate(request: Request, module_id: int):
 @app.get("/learning/admin")
 def learning_admin(request: Request):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1490,7 +1589,7 @@ def learning_admin(request: Request):
 @app.post("/learning/admin/seed")
 def learning_admin_seed(request: Request):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     created = seed_modules()
@@ -1501,7 +1600,7 @@ def learning_admin_seed(request: Request):
 @app.get("/learning/admin/module/{module_id}")
 def learning_admin_edit(request: Request, module_id: int):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()
@@ -1534,7 +1633,7 @@ def learning_admin_update(
     correct_option: str = Form(...),
 ):
     user = get_current_user(request)
-    if not user or user.role not in ("admin", "training_lead"):
+    if not _is_hr(user):
         return _redirect_login()
 
     conn = get_connection()

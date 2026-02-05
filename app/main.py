@@ -75,6 +75,18 @@ def _is_hr(user) -> bool:
     return user and user.role in ("admin", "hr_manager")
 
 
+
+
+def _training_keywords(cur, staff_type: str):
+    rule = cur.execute(
+        "SELECT include_keywords, exclude_keywords FROM training_assignment_rules WHERE staff_type = ?",
+        (staff_type,),
+    ).fetchone()
+    include = [k.strip().lower() for k in (rule["include_keywords"] if rule else "").split(",") if k.strip()]
+    exclude = [k.strip().lower() for k in (rule["exclude_keywords"] if rule else "").split(",") if k.strip()]
+    return include, exclude
+
+
 def _template(name: str, request: Request, context: dict) -> HTMLResponse:
     context["current_user"] = get_current_user(request)
     return templates.TemplateResponse(name, context)
@@ -861,12 +873,14 @@ def hr_staff_import(request: Request, file: UploadFile = File(...)):
                 )
 
         # Assign training modules
+        include, exclude = _training_keywords(cur, staff_type)
         modules = cur.execute("SELECT id, title FROM training_modules WHERE active = 1").fetchall()
         for m in modules:
             title = (m["title"] or "").lower()
-            if staff_type == "non_clinical":
-                if any(k in title for k in ["medication", "treatment", "clinical", "admissions", "assessment"]):
-                    continue
+            if include and not any(k in title for k in include):
+                continue
+            if exclude and any(k in title for k in exclude):
+                continue
             cur.execute(
                 "INSERT INTO training_assignments (module_id, staff_id) VALUES (?, ?)",
                 (m["id"], staff_id),
@@ -886,6 +900,74 @@ def hr_staff_import(request: Request, file: UploadFile = File(...)):
     _log_action(user.id, "import", "staff", None, f"count={count}")
 
     return RedirectResponse(url="/hr", status_code=303)
+
+
+@app.get("/hr/rules")
+def hr_rules(request: Request):
+    user = get_current_user(request)
+    if not _is_hr(user):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    rules = cur.execute("SELECT * FROM training_assignment_rules ORDER BY staff_type").fetchall()
+    conn.close()
+
+    return _template("hr_rules.html", request, {"request": request, "rules": rules})
+
+
+@app.post("/hr/rules/{staff_type}")
+def hr_rules_update(request: Request, staff_type: str, include_keywords: str = Form(""), exclude_keywords: str = Form("")):
+    user = get_current_user(request)
+    if not _is_hr(user):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE training_assignment_rules SET include_keywords = ?, exclude_keywords = ? WHERE staff_type = ?",
+        (include_keywords, exclude_keywords, staff_type),
+    )
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "update", "training_rules", None, staff_type)
+
+    return RedirectResponse(url="/hr/rules", status_code=303)
+
+
+@app.get("/hr/export/onboarding.csv")
+def hr_export_onboarding(request: Request):
+    user = get_current_user(request)
+    if not _is_hr(user):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    rows = cur.execute(
+        """
+        SELECT staff.name AS staff_name, staff.staff_type, staff.role, staff.department,
+               onboarding_templates.title AS template_title,
+               onboarding_assignments.due_date,
+               COUNT(onboarding_progress.id) AS total_steps,
+               SUM(CASE WHEN onboarding_progress.completed = 1 THEN 1 ELSE 0 END) AS completed_steps
+        FROM onboarding_assignments
+        JOIN staff ON staff.id = onboarding_assignments.staff_id
+        JOIN onboarding_templates ON onboarding_templates.id = onboarding_assignments.template_id
+        LEFT JOIN onboarding_progress ON onboarding_progress.assignment_id = onboarding_assignments.id
+        GROUP BY onboarding_assignments.id
+        ORDER BY staff.name
+        """
+    ).fetchall()
+    conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["staff_name", "staff_type", "role", "department", "template", "due_date", "completed_steps", "total_steps"])
+    for r in rows:
+        writer.writerow([r[0], r[1], r[2], r[3], r[4], r[5], r[7] or 0, r[6] or 0])
+
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=onboarding_report.csv"})
 @app.get("/hr")
 def hr_home(request: Request):
     user = get_current_user(request)
@@ -1002,12 +1084,14 @@ def hr_staff_new(
 
 
     # Auto-assign training modules based on staff type
+    include, exclude = _training_keywords(cur, staff_type)
     modules = cur.execute("SELECT id, title FROM training_modules WHERE active = 1").fetchall()
     for m in modules:
         title = (m["title"] or "").lower()
-        if staff_type == "non_clinical":
-            if any(k in title for k in ["medication", "treatment", "clinical", "admissions", "assessment"]):
-                continue
+        if include and not any(k in title for k in include):
+            continue
+        if exclude and any(k in title for k in exclude):
+            continue
         cur.execute(
             "INSERT INTO training_assignments (module_id, staff_id) VALUES (?, ?)",
             (m["id"], staff_id),
@@ -1232,6 +1316,39 @@ def hr_template_update(request: Request, template_id: int, title: str = Form(...
     return RedirectResponse(url="/hr/templates", status_code=303)
 
 
+
+
+@app.post("/hr/templates/{template_id}/assign-bulk")
+def hr_template_assign_bulk(request: Request, template_id: int, staff_type: str = Form(...), due_date: str = Form("")):
+    user = get_current_user(request)
+    if not _is_hr(user):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    staff = cur.execute(
+        "SELECT id FROM staff WHERE active = 1 AND (staff_type = ? OR ? = 'all')",
+        (staff_type, staff_type),
+    ).fetchall()
+    steps = cur.execute("SELECT id FROM onboarding_steps WHERE template_id = ?", (template_id,)).fetchall()
+
+    for s in staff:
+        cur.execute(
+            "INSERT INTO onboarding_assignments (staff_id, template_id, due_date) VALUES (?, ?, ?)",
+            (s["id"], template_id, due_date or None),
+        )
+        assignment_id = cur.lastrowid
+        for step in steps:
+            cur.execute(
+                "INSERT INTO onboarding_progress (assignment_id, step_id, completed) VALUES (?, ?, 0)",
+                (assignment_id, step["id"]),
+            )
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "assign_bulk", "onboarding", template_id, staff_type)
+
+    return RedirectResponse(url=f"/hr/templates/{template_id}", status_code=303)
 @app.post("/hr/templates/{template_id}/steps")
 def hr_template_steps(request: Request, template_id: int, step_text: str = Form(...)):
     user = get_current_user(request)

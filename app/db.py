@@ -241,6 +241,17 @@ def init_db() -> None:
         """
     )
 
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_assignment_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_type TEXT NOT NULL UNIQUE,
+            include_keywords TEXT,
+            exclude_keywords TEXT
+        );
+        """
+    )
+
     # Migration: users table additions
     user_columns = _column_names(cur, "users")
     if "must_reset_password" not in user_columns:
@@ -251,6 +262,18 @@ def init_db() -> None:
     for col in ["staff_type", "role", "department", "supervisor", "hire_date"]:
         if col not in staff_columns:
             cur.execute(f"ALTER TABLE staff ADD COLUMN {col} TEXT")
+
+    # Seed training assignment rules if missing
+    existing_rules = cur.execute("SELECT COUNT(*) AS c FROM training_assignment_rules").fetchone()
+    if existing_rules and existing_rules["c"] == 0:
+        cur.execute(
+            "INSERT INTO training_assignment_rules (staff_type, include_keywords, exclude_keywords) VALUES (?, ?, ?)",
+            ("clinical", "", ""),
+        )
+        cur.execute(
+            "INSERT INTO training_assignment_rules (staff_type, include_keywords, exclude_keywords) VALUES (?, ?, ?)",
+            ("non_clinical", "", "medication,treatment,clinical,admissions,assessment"),
+        )
 
     # Migration: remove old unique constraint on acknowledgments (sop_id, staff_id)
     if "ack_unique" in _index_names(cur, "acknowledgments"):

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex flex-col gap-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold">Training Assignment Rules</h1>
+      <p class="text-sm text-white/60">Control which training modules auto-assign by staff type.</p>
+    </div>
+    <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/hr">Back to HR</a>
+  </div>
+
+  {% for r in rules %}
+  <form method="post" action="/hr/rules/{{ r.staff_type }}" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 flex flex-col gap-3">
+    <div class="text-sm font-semibold">{{ r.staff_type|replace('_',' ')|title }}</div>
+    <label class="text-xs text-white/60">Include keywords (comma-separated)</label>
+    <input type="text" name="include_keywords" value="{{ r.include_keywords or '' }}" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <label class="text-xs text-white/60">Exclude keywords (comma-separated)</label>
+    <input type="text" name="exclude_keywords" value="{{ r.exclude_keywords or '' }}" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <button class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5 w-fit">Save Rules</button>
+  </form>
+  {% endfor %}
+</div>
+{% endblock %}

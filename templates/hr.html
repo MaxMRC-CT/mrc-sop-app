@@ -6,7 +6,11 @@
       <h1 class="text-2xl font-semibold">HR</h1>
       <p class="text-sm text-white/60">Add staff, assign onboarding, and track completion.</p>
     </div>
-    <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/hr/templates">Onboarding Templates</a>
+    <div class="flex flex-wrap gap-3">
+      <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/hr/templates">Onboarding Templates</a>
+      <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/hr/rules">Training Rules</a>
+      <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/hr/export/onboarding.csv">Export Onboarding CSV</a>
+    </div>
   </div>
 
   <form method="post" action="/hr/staff/new" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-3 gap-4">

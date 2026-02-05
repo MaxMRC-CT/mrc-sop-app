@@ -816,6 +816,10 @@ def hr_home(request: Request):
         "SELECT id, name, role, department, hire_date FROM staff WHERE active = 1 ORDER BY name"
     ).fetchall()
 
+    templates = cur.execute(
+        "SELECT id, title FROM onboarding_templates ORDER BY title"
+    ).fetchall()
+
     # onboarding status summary
     staff_rows = []
     for s in staff:
@@ -835,6 +839,7 @@ def hr_home(request: Request):
             """,
             (s["id"],),
         ).fetchone()["c"]
+        percent = (completed_steps / total_steps * 100) if total_steps else 0
         status = f"{completed_steps}/{total_steps}" if total_steps else "Not assigned"
         staff_rows.append(
             {
@@ -844,12 +849,87 @@ def hr_home(request: Request):
                 "department": s["department"],
                 "hire_date": s["hire_date"],
                 "onboarding_status": status,
+                "onboarding_percent": percent,
             }
         )
 
     conn.close()
 
-    return _template("hr.html", request, {"request": request, "staff": staff_rows})
+    return _template(
+        "hr.html",
+        request,
+        {"request": request, "staff": staff_rows, "templates": templates},
+    )
+
+
+@app.post("/hr/staff/new")
+def hr_staff_new(
+    request: Request,
+    name: str = Form(...),
+    role: str = Form(""),
+    department: str = Form(""),
+    supervisor: str = Form(""),
+    hire_date: str = Form(""),
+    staff_type: str = Form(...),
+    due_date: str = Form(""),
+    create_login: Optional[str] = Form(None),
+    username: str = Form(""),
+    password: str = Form(""),
+):
+    user = get_current_user(request)
+    if not user or user.role not in ("admin", "training_lead"):
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cleaned = name.strip()
+    normalized = cleaned.lower()
+    cur.execute(
+        "INSERT OR IGNORE INTO staff (name, normalized_name, role, department, supervisor, hire_date) VALUES (?, ?, ?, ?, ?, ?)",
+        (cleaned, normalized, role.strip() or None, department.strip() or None, supervisor.strip() or None, hire_date or None),
+    )
+    staff_id = cur.execute(
+        "SELECT id FROM staff WHERE normalized_name = ?",
+        (normalized,),
+    ).fetchone()[0]
+
+    # Assign onboarding template based on staff type
+    template_title = "Clinical Staff Onboarding (Counselors/Clinicians)" if staff_type == "clinical" else "Residential Staff Onboarding (ASAM 3.1)"
+    template = cur.execute(
+        "SELECT id FROM onboarding_templates WHERE title = ?",
+        (template_title,),
+    ).fetchone()
+
+    if template:
+        cur.execute(
+            "INSERT INTO onboarding_assignments (staff_id, template_id, due_date) VALUES (?, ?, ?)",
+            (staff_id, template["id"], due_date or None),
+        )
+        assignment_id = cur.lastrowid
+        steps = cur.execute(
+            "SELECT id FROM onboarding_steps WHERE template_id = ?",
+            (template["id"],),
+        ).fetchall()
+        for s in steps:
+            cur.execute(
+                "INSERT INTO onboarding_progress (assignment_id, step_id, completed) VALUES (?, ?, 0)",
+                (assignment_id, s["id"]),
+            )
+
+    # Optional: create login for new staff
+    if create_login and username.strip() and password.strip():
+        cur.execute(
+            "INSERT INTO users (username, password_hash, role, staff_id, must_reset_password) VALUES (?, ?, 'staff', ?, 1)",
+            (username.strip(), create_password_hash(password.strip()), staff_id),
+        )
+
+    conn.commit()
+    conn.close()
+
+    _log_action(user.id, "create", "staff_profile", staff_id, cleaned)
+
+    return RedirectResponse(url="/hr", status_code=303)
 
 
 @app.get("/hr/staff/{staff_id}")

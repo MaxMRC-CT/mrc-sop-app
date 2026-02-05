@@ -4,10 +4,34 @@
   <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
     <div>
       <h1 class="text-2xl font-semibold">HR</h1>
-      <p class="text-sm text-white/60">Staff profiles and onboarding checklists.</p>
+      <p class="text-sm text-white/60">Add staff, assign onboarding, and track completion.</p>
     </div>
     <a class="border border-white/10 rounded-lg px-4 py-2 hover:bg-white/5" href="/hr/templates">Onboarding Templates</a>
   </div>
+
+  <form method="post" action="/hr/staff/new" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="md:col-span-3 text-sm font-semibold text-white/70">Add New Staff</div>
+    <input type="text" name="name" placeholder="Full name" required class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <input type="text" name="role" placeholder="Role / Title" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <input type="text" name="department" placeholder="Department" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <input type="text" name="supervisor" placeholder="Supervisor" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <input type="date" name="hire_date" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <select name="staff_type" class="bg-transparent border border-white/10 rounded-lg px-3 py-2 text-white" required>
+      <option value="non_clinical">Non-Clinical</option>
+      <option value="clinical">Clinical</option>
+    </select>
+    <input type="date" name="due_date" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+
+    <label class="md:col-span-3 text-xs text-white/70 flex items-center gap-2">
+      <input type="checkbox" name="create_login" class="h-4 w-4" />
+      Create staff login now
+    </label>
+    <input type="text" name="username" placeholder="Username (if creating login)" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <input type="password" name="password" placeholder="Temporary password" class="bg-transparent border border-white/10 rounded-lg px-3 py-2" />
+    <div class="text-xs text-white/50">Assigned onboarding template is based on staff type.</div>
+
+    <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold w-fit md:col-span-3">Create Staff + Start Onboarding</button>
+  </form>
 
   <div class="bg-[#2f3640] border border-white/10 rounded-2xl overflow-hidden">
     <table class="w-full text-sm">
@@ -28,7 +52,12 @@
           <td class="px-4 py-3">{{ s.role or '-' }}</td>
           <td class="px-4 py-3">{{ s.department or '-' }}</td>
           <td class="px-4 py-3">{{ s.hire_date or '-' }}</td>
-          <td class="px-4 py-3">{{ s.onboarding_status }}</td>
+          <td class="px-4 py-3">
+            <div class="text-xs text-white/60 mb-1">{{ s.onboarding_status }}</div>
+            <div class="h-2 bg-white/10 rounded-full">
+              <div class="h-2 mrc-gradient rounded-full" style="width: {{ s.onboarding_percent }}%"></div>
+            </div>
+          </td>
           <td class="px-4 py-3">
             <div class="flex flex-wrap gap-3">
               <a class="text-orange-300 hover:underline" href="/hr/staff/{{ s.id }}">Edit</a>

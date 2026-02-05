@@ -92,6 +92,21 @@ def _template(name: str, request: Request, context: dict) -> HTMLResponse:
     return templates.TemplateResponse(name, context)
 
 
+def _assign_training(cur, staff_id: int, staff_type: str) -> None:
+    include, exclude = _training_keywords(cur, staff_type)
+    modules = cur.execute("SELECT id, title FROM training_modules WHERE active = 1").fetchall()
+    for m in modules:
+        title = (m["title"] or "").lower()
+        if include and not any(k in title for k in include):
+            continue
+        if exclude and any(k in title for k in exclude):
+            continue
+        cur.execute(
+            "INSERT INTO training_assignments (module_id, staff_id) VALUES (?, ?)",
+            (m["id"], staff_id),
+        )
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
@@ -825,7 +840,7 @@ def export_sops(request: Request):
 
 
 @app.post("/hr/staff/import")
-def hr_staff_import(request: Request, file: UploadFile = File(...)):
+def hr_staff_import_preview(request: Request, file: UploadFile = File(...)):
     user = get_current_user(request)
     if not _is_hr(user):
         return _redirect_login()
@@ -833,12 +848,14 @@ def hr_staff_import(request: Request, file: UploadFile = File(...)):
     content = file.file.read().decode("utf-8", errors="ignore")
     reader = csv.DictReader(io.StringIO(content))
 
-    conn = get_connection()
-    cur = conn.cursor()
-    count = 0
+    preview_rows = []
+    errors = []
+    row_num = 1
     for row in reader:
+        row_num += 1
         name = (row.get("name") or row.get("Name") or "").strip()
         if not name:
+            errors.append(f"Row {row_num}: missing name")
             continue
         staff_type = (row.get("staff_type") or row.get("type") or "non_clinical").strip()
         role = (row.get("role") or "").strip()
@@ -848,6 +865,55 @@ def hr_staff_import(request: Request, file: UploadFile = File(...)):
         username = (row.get("username") or "").strip()
         password = (row.get("password") or "").strip()
         create_login = (row.get("create_login") or "").strip().lower() in ("1", "true", "yes", "y")
+
+        preview_rows.append(
+            {
+                "name": name,
+                "staff_type": staff_type,
+                "role": role,
+                "department": department,
+                "supervisor": supervisor,
+                "hire_date": hire_date,
+                "username": username,
+                "create_login": create_login,
+                "password": password,
+            }
+        )
+
+    return _template(
+        "hr_import_preview.html",
+        request,
+        {"request": request, "rows": preview_rows, "errors": errors},
+    )
+
+
+@app.post("/hr/staff/import/confirm")
+def hr_staff_import_confirm(request: Request):
+    user = get_current_user(request)
+    if not _is_hr(user):
+        return _redirect_login()
+
+    form = request.form()
+    rows_json = form.get("rows")
+    if not rows_json:
+        return RedirectResponse(url="/hr", status_code=303)
+
+    import json
+    rows = json.loads(rows_json)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    count = 0
+    for row in rows:
+        name = row["name"].strip()
+        staff_type = row["staff_type"]
+        role = row["role"]
+        department = row["department"]
+        supervisor = row["supervisor"]
+        hire_date = row["hire_date"]
+        username = row["username"]
+        password = row["password"]
+        create_login = row["create_login"]
 
         normalized = name.lower()
         cur.execute(
@@ -872,21 +938,8 @@ def hr_staff_import(request: Request, file: UploadFile = File(...)):
                     (assignment_id, s["id"]),
                 )
 
-        # Assign training modules
-        include, exclude = _training_keywords(cur, staff_type)
-        modules = cur.execute("SELECT id, title FROM training_modules WHERE active = 1").fetchall()
-        for m in modules:
-            title = (m["title"] or "").lower()
-            if include and not any(k in title for k in include):
-                continue
-            if exclude and any(k in title for k in exclude):
-                continue
-            cur.execute(
-                "INSERT INTO training_assignments (module_id, staff_id) VALUES (?, ?)",
-                (m["id"], staff_id),
-            )
+        _assign_training(cur, staff_id, staff_type)
 
-        # Optional login
         if create_login and username and password:
             cur.execute(
                 "INSERT INTO users (username, password_hash, role, staff_id, must_reset_password) VALUES (?, ?, 'staff', ?, 1)",
@@ -986,6 +1039,9 @@ def hr_home(request: Request):
 
     # onboarding status summary
     staff_rows = []
+    total_steps_all = 0
+    completed_steps_all = 0
+    overdue_count = 0
     for s in staff:
         total_steps = cur.execute(
             """
@@ -1003,6 +1059,17 @@ def hr_home(request: Request):
             """,
             (s["id"],),
         ).fetchone()["c"]
+        total_steps_all += total_steps
+        completed_steps_all += completed_steps
+
+        overdue = cur.execute(
+            """
+            SELECT COUNT(*) AS c FROM onboarding_assignments
+            WHERE staff_id = ? AND due_date IS NOT NULL AND date(due_date) < date('now')
+            """,
+            (s["id"],),
+        ).fetchone()["c"]
+        overdue_count += overdue
         percent = (completed_steps / total_steps * 100) if total_steps else 0
         status = f"{completed_steps}/{total_steps}" if total_steps else "Not assigned"
         staff_rows.append(
@@ -1019,10 +1086,20 @@ def hr_home(request: Request):
 
     conn.close()
 
+    completion_rate = (completed_steps_all / total_steps_all * 100) if total_steps_all else 0
+
     return _template(
         "hr.html",
         request,
-        {"request": request, "staff": staff_rows, "templates": templates},
+        {
+            "request": request,
+            "staff": staff_rows,
+            "templates": templates,
+            "staff_count": len(staff),
+            "onboarding_assignments": total_steps_all,
+            "onboarding_completion_rate": completion_rate,
+            "onboarding_overdue_count": overdue_count,
+        },
     )
 
 
@@ -1084,18 +1161,7 @@ def hr_staff_new(
 
 
     # Auto-assign training modules based on staff type
-    include, exclude = _training_keywords(cur, staff_type)
-    modules = cur.execute("SELECT id, title FROM training_modules WHERE active = 1").fetchall()
-    for m in modules:
-        title = (m["title"] or "").lower()
-        if include and not any(k in title for k in include):
-            continue
-        if exclude and any(k in title for k in exclude):
-            continue
-        cur.execute(
-            "INSERT INTO training_assignments (module_id, staff_id) VALUES (?, ?)",
-            (m["id"], staff_id),
-        )
+    _assign_training(cur, staff_id, staff_type)
     # Optional: create login for new staff
     if create_login and username.strip() and password.strip():
         cur.execute(
@@ -1145,6 +1211,7 @@ def hr_staff_update(
 
     conn = get_connection()
     cur = conn.cursor()
+    existing = cur.execute("SELECT staff_type FROM staff WHERE id = ?", (staff_id,)).fetchone()
     cur.execute(
         """
         UPDATE staff
@@ -1153,6 +1220,12 @@ def hr_staff_update(
         """,
         (name.strip(), staff_type or None, role.strip() or None, department.strip() or None, supervisor.strip() or None, hire_date or None, staff_id),
     )
+
+    # If staff_type changes, re-assign training based on rules
+    if existing and (existing["staff_type"] or "") != (staff_type or ""):
+        cur.execute("DELETE FROM training_assignments WHERE staff_id = ?", (staff_id,))
+        _assign_training(cur, staff_id, staff_type or "non_clinical")
+
     conn.commit()
     conn.close()
 

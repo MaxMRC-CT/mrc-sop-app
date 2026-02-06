@@ -1,5 +1,7 @@
 import sqlite3
 from pathlib import Path
+from contextlib import contextmanager
+from typing import Generator
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 INSTANCE_DIR = BASE_DIR / "instance"
@@ -11,6 +13,31 @@ def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextmanager
+def get_db() -> Generator[sqlite3.Connection, None, None]:
+    """Context manager for database connections. Ensures connections are always closed."""
+    INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@contextmanager
+def get_db() -> Generator[sqlite3.Connection, None, None]:
+    """Context manager for database connections. Ensures connections are properly closed."""
+    conn = get_connection()
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _column_names(cur: sqlite3.Cursor, table: str) -> set[str]:
@@ -328,6 +355,21 @@ def init_db() -> None:
             "UPDATE acknowledgments SET staff_id = ? WHERE staff_name = ?",
             (staff_id, name),
         )
+
+    # Create indexes for performance
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_staff_active ON staff(active)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_staff_normalized ON staff(normalized_name)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_users_staff_id ON users(staff_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ack_sop_staff ON acknowledgments(sop_id, staff_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ack_staff ON acknowledgments(staff_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ack_date ON acknowledgments(acknowledged_at)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sop_category ON sops(category)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sop_versions_sop ON sop_versions(sop_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_training_modules_sop ON training_modules(sop_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_training_attempts_module_staff ON training_attempts(module_id, staff_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_training_assignments_staff ON training_assignments(staff_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id)")
 
     conn.commit()
     conn.close()

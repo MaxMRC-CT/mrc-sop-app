@@ -4,19 +4,35 @@ import csv
 import io
 import os
 import re
+import logging
 from typing import Optional
 
-from fastapi import FastAPI, Request, Form, UploadFile, File
+from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from pathlib import Path
 
-from .db import get_connection, init_db
+from .db import get_connection, init_db, get_db
 from .seed import import_sops
 from .learning import seed_modules, module_status, is_locked_out
-from .auth import authenticate, ensure_default_admin, get_current_user, require_admin, require_login, create_password_hash, verify_password
+from .validation import (
+    PasswordChangeRequest, 
+    CreateSOPRequest, 
+    UpdateSOPRequest,
+    CreateStaffRequest,
+    CreateUserRequest,
+    AcknowledgmentRequest,
+    validate_form_data
+)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -38,6 +54,34 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
+# Error handling
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler to catch unhandled errors"""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    
+    # If it's an HTTPException, let FastAPI handle it normally
+    if isinstance(exc, HTTPException):
+        raise exc
+    
+    # For other errors, show a friendly error page
+    error_message = "An unexpected error occurred. Please try again."
+    
+    # In development, show detailed error
+    if os.getenv("DEBUG", "").lower() == "true":
+        error_message = f"Error: {str(exc)}"
+    
+    return templates.TemplateResponse(
+        "base.html",
+        {
+            "request": request,
+            "current_user": get_current_user(request),
+            "error": error_message
+        },
+        status_code=500
+    )
+
+
 def _highlight(text: str, query: str) -> str:
     if not query:
         return text
@@ -53,20 +97,55 @@ def _redirect_login() -> RedirectResponse:
 
 
 def _log_action(actor_id: Optional[int], action: str, entity_type: str, entity_id: Optional[int], details: Optional[str] = None) -> None:
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO audit_log (actor_user_id, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?)",
-        (actor_id, action, entity_type, entity_id, details),
-    )
-    conn.commit()
-    conn.close()
+    """Log an action to the audit log"""
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO audit_log (actor_user_id, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?)",
+                (actor_id, action, entity_type, entity_id, details),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to log action: {e}", exc_info=True)
 
 
 def _client_info(request: Request) -> tuple[Optional[str], Optional[str]]:
     ip = request.client.host if request.client else None
     agent = request.headers.get("user-agent")
     return ip, agent
+
+
+def _build_date_filter(start_date: Optional[str] = None, end_date: Optional[str] = None) -> tuple[str, list[str]]:
+    """
+    Build safe SQL date filter clause and parameters.
+    
+    Returns:
+        (sql_clause, params_list)
+    """
+    clause_parts = []
+    params = []
+    
+    if start_date:
+        try:
+            # Validate date format
+            datetime.strptime(start_date, "%Y-%m-%d")
+            clause_parts.append("date(acknowledged_at) >= date(?)")
+            params.append(start_date)
+        except ValueError:
+            logger.warning(f"Invalid start_date format: {start_date}")
+    
+    if end_date:
+        try:
+            # Validate date format
+            datetime.strptime(end_date, "%Y-%m-%d")
+            clause_parts.append("date(acknowledged_at) <= date(?)")
+            params.append(end_date)
+        except ValueError:
+            logger.warning(f"Invalid end_date format: {end_date}")
+    
+    sql_clause = " AND " + " AND ".join(clause_parts) if clause_parts else ""
+    return sql_clause, params
 
 
 
@@ -161,28 +240,58 @@ def account_update(
     if not user:
         return _redirect_login()
 
-    if new_password != confirm_password:
-        return _template("account.html", request, {"request": request, "error": "Passwords do not match", "message": None})
-    if len(new_password) < 8:
-        return _template("account.html", request, {"request": request, "error": "Password must be at least 8 characters", "message": None})
-
-    conn = get_connection()
-    cur = conn.cursor()
-    row = cur.execute("SELECT password_hash FROM users WHERE id = ?", (user.id,)).fetchone()
-    if not row or not verify_password(current_password, row["password_hash"]):
-        conn.close()
-        return _template("account.html", request, {"request": request, "error": "Current password is incorrect", "message": None})
-
-    cur.execute(
-        "UPDATE users SET password_hash = ?, must_reset_password = 0 WHERE id = ?",
-        (create_password_hash(new_password), user.id),
+    # Validate input
+    success, validated, error = validate_form_data(
+        PasswordChangeRequest,
+        current_password=current_password,
+        new_password=new_password,
+        confirm_password=confirm_password
     )
-    conn.commit()
-    conn.close()
+    
+    if not success:
+        logger.warning(f"Password change validation failed for user {user.id}: {error}")
+        return _template("account.html", request, {
+            "request": request, 
+            "error": error, 
+            "message": None,
+            "force": False
+        })
 
-    _log_action(user.id, "password_change", "user", user.id, "self-service")
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            row = cur.execute("SELECT password_hash FROM users WHERE id = ?", (user.id,)).fetchone()
+            if not row or not verify_password(current_password, row["password_hash"]):
+                return _template("account.html", request, {
+                    "request": request, 
+                    "error": "Current password is incorrect", 
+                    "message": None,
+                    "force": False
+                })
 
-    return _template("account.html", request, {"request": request, "error": None, "message": "Password updated.", "force": False})
+            cur.execute(
+                "UPDATE users SET password_hash = ?, must_reset_password = 0 WHERE id = ?",
+                (create_password_hash(new_password), user.id),
+            )
+            conn.commit()
+
+        _log_action(user.id, "password_change", "user", user.id, "self-service")
+        logger.info(f"User {user.id} successfully changed password")
+
+        return _template("account.html", request, {
+            "request": request, 
+            "error": None, 
+            "message": "Password updated.", 
+            "force": False
+        })
+    except Exception as e:
+        logger.error(f"Error updating password for user {user.id}: {e}", exc_info=True)
+        return _template("account.html", request, {
+            "request": request, 
+            "error": "An error occurred. Please try again.", 
+            "message": None,
+            "force": False
+        })
 
 
 @app.get("/")
@@ -368,23 +477,46 @@ def admin_create(
     except PermissionError:
         return _redirect_login()
 
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO sops (title, category, content) VALUES (?, ?, ?)",
-        (title.strip(), category.strip(), content.strip()),
+    # Validate input
+    success, validated, error = validate_form_data(
+        CreateSOPRequest,
+        title=title,
+        category=category,
+        content=content
     )
-    sop_id = cur.lastrowid
-    cur.execute(
-        "INSERT INTO sop_versions (sop_id, version, title, category, content, created_by) VALUES (?, ?, ?, ?, ?, ?)",
-        (sop_id, 1, title.strip(), category.strip(), content.strip(), user.id),
-    )
-    conn.commit()
-    conn.close()
+    
+    if not success:
+        logger.warning(f"SOP creation validation failed: {error}")
+        return _template("admin_new.html", request, {
+            "request": request,
+            "error": error
+        })
 
-    _log_action(user.id, "create", "sop", sop_id, title.strip())
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO sops (title, category, content) VALUES (?, ?, ?)",
+                (validated.title, validated.category, validated.content),
+            )
+            sop_id = cur.lastrowid
+            cur.execute(
+                "INSERT INTO sop_versions (sop_id, version, title, category, content, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+                (sop_id, 1, validated.title, validated.category, validated.content, user.id),
+            )
+            conn.commit()
 
-    return RedirectResponse(url="/admin", status_code=303)
+        _log_action(user.id, "create", "sop", sop_id, validated.title)
+        logger.info(f"User {user.id} created SOP {sop_id}: {validated.title}")
+
+        return RedirectResponse(url="/admin", status_code=303)
+        
+    except Exception as e:
+        logger.error(f"Error creating SOP: {e}", exc_info=True)
+        return _template("admin_new.html", request, {
+            "request": request,
+            "error": "An error occurred while creating the SOP. Please try again."
+        })
 
 
 @app.get("/admin/edit/{sop_id}")
@@ -1865,32 +1997,44 @@ def compliance_dashboard(
     if not get_current_user(request):
         return _redirect_login()
 
-    conn = get_connection()
-    cur = conn.cursor()
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
 
-    staff = cur.execute("SELECT id, name FROM staff WHERE active = 1 ORDER BY name").fetchall()
-    sops = cur.execute("SELECT id, title, category FROM sops ORDER BY title").fetchall()
-    staff_count = len(staff)
-    sop_count = len(sops)
+            staff = cur.execute("SELECT id, name FROM staff WHERE active = 1 ORDER BY name").fetchall()
+            sops = cur.execute("SELECT id, title, category FROM sops ORDER BY title").fetchall()
+            staff_count = len(staff)
+            sop_count = len(sops)
 
-    cutoff = date.today() - timedelta(days=REACK_DAYS)
-    effective_start = cutoff
-    if start_date:
-        try:
-            start = datetime.strptime(start_date, "%Y-%m-%d").date()
-            if start > effective_start:
-                effective_start = start
-        except ValueError:
-            pass
+            # Build safe date filter with validation
+            cutoff = date.today() - timedelta(days=REACK_DAYS)
+            effective_start = cutoff
+            if start_date:
+                try:
+                    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+                    if start > effective_start:
+                        effective_start = start
+                except ValueError:
+                    logger.warning(f"Invalid start_date format: {start_date}")
+                    start_date = None  # Reset to prevent display of invalid date
 
-    date_clause = ""
-    date_params: list[str] = []
-    if effective_start:
-        date_clause += " AND date(acknowledged_at) >= date(?)"
-        date_params.append(str(effective_start))
-    if end_date:
-        date_clause += " AND date(acknowledged_at) <= date(?)"
-        date_params.append(end_date)
+            # Use safe date filter builder
+            date_clause_parts = []
+            date_params: list[str] = []
+            if effective_start:
+                date_clause_parts.append("date(acknowledged_at) >= date(?)")
+                date_params.append(str(effective_start))
+            if end_date:
+                try:
+                    # Validate end_date format
+                    datetime.strptime(end_date, "%Y-%m-%d")
+                    date_clause_parts.append("date(acknowledged_at) <= date(?)")
+                    date_params.append(end_date)
+                except ValueError:
+                    logger.warning(f"Invalid end_date format: {end_date}")
+                    end_date = None  # Reset to prevent display of invalid date
+            
+            date_clause = " AND " + " AND ".join(date_clause_parts) if date_clause_parts else ""
 
     ack_by_sop = {
         row["sop_id"]: row["ack_count"]
@@ -1937,21 +2081,31 @@ def compliance_dashboard(
     }
 
     staff_completion = []
-    for person in staff:
-        acked = cur.execute(
-            f"""
-            SELECT COUNT(*) AS acked FROM (
-                SELECT acknowledgments.sop_id AS sop_id, MAX(acknowledged_at) AS last_ack
-                FROM acknowledgments
-                WHERE acknowledgments.staff_id = ? {date_clause}
-                GROUP BY acknowledgments.sop_id
-            )
-            """,
-            [person["id"], *date_params],
-        ).fetchone()["acked"]
-        completion = (acked / sop_count * 100) if sop_count else 0
+    # FIX: Use single query with JOIN instead of N+1 queries
+    staff_ack_counts = cur.execute(
+        f"""
+        SELECT 
+            s.id,
+            s.name,
+            COUNT(DISTINCT a.sop_id) AS acked_count
+        FROM staff s
+        LEFT JOIN (
+            SELECT staff_id, sop_id, MAX(acknowledged_at) AS last_ack
+            FROM acknowledgments
+            WHERE 1=1 {date_clause}
+            GROUP BY staff_id, sop_id
+        ) a ON a.staff_id = s.id
+        WHERE s.active = 1
+        GROUP BY s.id, s.name
+        ORDER BY s.name
+        """,
+        date_params,
+    ).fetchall()
+    
+    for row in staff_ack_counts:
+        completion = (row["acked_count"] / sop_count * 100) if sop_count else 0
         staff_completion.append(
-            {"name": person["name"], "acked": acked, "total": sop_count, "percent": completion}
+            {"name": row["name"], "acked": row["acked_count"], "total": sop_count, "percent": completion}
         )
 
     recent_acks = cur.execute(
@@ -2027,28 +2181,52 @@ def compliance_dashboard(
             percent = (completed / module_count * 100) if module_count else 0
             lms_staff_rows.append({"staff": s["name"], "completed": completed, "total": module_count, "percent": percent})
 
-    conn.close()
-
-    return _template(
-        "compliance.html",
-        request,
-        {
-            "request": request,
-            "staff_count": staff_count,
-            "sop_count": sop_count,
-            "overall_percent": overall_percent,
-            "sops": sops,
-            "ack_by_sop": ack_by_sop,
-            "ack_by_category": ack_by_category,
-            "sop_counts_by_category": sop_counts_by_category,
-            "staff_completion": staff_completion,
-            "recent_acks": recent_acks,
-            "overdue": overdue,
-            "start_date": start_date or "",
-            "end_date": end_date or "",
-            "reack_days": REACK_DAYS,
-            "lms_staff_rows": lms_staff_rows,
-            "lms_overdue_rows": lms_overdue_rows,
-            "lms_module_count": module_count,
-        },
-    )
+            return _template(
+                "compliance.html",
+                request,
+                {
+                    "request": request,
+                    "staff_count": staff_count,
+                    "sop_count": sop_count,
+                    "overall_percent": overall_percent,
+                    "sops": sops,
+                    "ack_by_sop": ack_by_sop,
+                    "ack_by_category": ack_by_category,
+                    "sop_counts_by_category": sop_counts_by_category,
+                    "staff_completion": staff_completion,
+                    "recent_acks": recent_acks,
+                    "overdue": overdue,
+                    "start_date": start_date or "",
+                    "end_date": end_date or "",
+                    "reack_days": REACK_DAYS,
+                    "lms_staff_rows": lms_staff_rows,
+                    "lms_overdue_rows": lms_overdue_rows,
+                    "lms_module_count": module_count,
+                },
+            )
+    except Exception as e:
+        logger.error(f"Error in compliance dashboard: {e}", exc_info=True)
+        return _template(
+            "compliance.html",
+            request,
+            {
+                "request": request,
+                "error": "Unable to load compliance data. Please try again later.",
+                "staff_count": 0,
+                "sop_count": 0,
+                "overall_percent": 0,
+                "sops": [],
+                "ack_by_sop": {},
+                "ack_by_category": {},
+                "sop_counts_by_category": {},
+                "staff_completion": [],
+                "recent_acks": [],
+                "overdue": [],
+                "start_date": "",
+                "end_date": "",
+                "reack_days": REACK_DAYS,
+                "lms_staff_rows": [],
+                "lms_overdue_rows": [],
+                "lms_module_count": 0,
+            },
+        )

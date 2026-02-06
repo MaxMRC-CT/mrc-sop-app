@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import Request
 
-from .db import get_connection
+from .db import get_connection, get_db, get_db
 
 
 @dataclass
@@ -38,48 +38,46 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def authenticate(username: str, password: str) -> Optional[User]:
-    conn = get_connection()
-    cur = conn.cursor()
-    row = cur.execute(
-        "SELECT id, username, password_hash, role, staff_id, must_reset_password, active FROM users WHERE username = ?",
-        (username,),
-    ).fetchone()
-    conn.close()
-    if not row or row["active"] != 1:
-        return None
-    if not verify_password(password, row["password_hash"]):
-        return None
-    return User(
-        id=row["id"],
-        username=row["username"],
-        role=row["role"],
-        staff_id=row["staff_id"],
-        must_reset_password=row["must_reset_password"],
-        active=row["active"],
-    )
+    with get_db() as conn:
+        cur = conn.cursor()
+        row = cur.execute(
+            "SELECT id, username, password_hash, role, staff_id, must_reset_password, active FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+        if not row or row["active"] != 1:
+            return None
+        if not verify_password(password, row["password_hash"]):
+            return None
+        return User(
+            id=row["id"],
+            username=row["username"],
+            role=row["role"],
+            staff_id=row["staff_id"],
+            must_reset_password=row["must_reset_password"],
+            active=row["active"],
+        )
 
 
 def get_current_user(request: Request) -> Optional[User]:
     user_id = request.session.get("user_id")
     if not user_id:
         return None
-    conn = get_connection()
-    cur = conn.cursor()
-    row = cur.execute(
-        "SELECT id, username, role, staff_id, must_reset_password, active FROM users WHERE id = ?",
-        (user_id,),
-    ).fetchone()
-    conn.close()
-    if not row or row["active"] != 1:
-        return None
-    return User(
-        id=row["id"],
-        username=row["username"],
-        role=row["role"],
-        staff_id=row["staff_id"],
-        must_reset_password=row["must_reset_password"],
-        active=row["active"],
-    )
+    with get_db() as conn:
+        cur = conn.cursor()
+        row = cur.execute(
+            "SELECT id, username, role, staff_id, must_reset_password, active FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if not row or row["active"] != 1:
+            return None
+        return User(
+            id=row["id"],
+            username=row["username"],
+            role=row["role"],
+            staff_id=row["staff_id"],
+            must_reset_password=row["must_reset_password"],
+            active=row["active"],
+        )
 
 
 def require_login(request: Request) -> User:
@@ -100,13 +98,12 @@ def ensure_default_admin() -> None:
     username = os.getenv("MRC_ADMIN_USERNAME", "admin")
     password = os.getenv("MRC_ADMIN_PASSWORD", "ChangeMe123!")
 
-    conn = get_connection()
-    cur = conn.cursor()
-    exists = cur.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
-    if not exists:
-        cur.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
-            (username, create_password_hash(password)),
-        )
-        conn.commit()
-    conn.close()
+    with get_db() as conn:
+        cur = conn.cursor()
+        exists = cur.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        if not exists:
+            cur.execute(
+                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
+                (username, create_password_hash(password)),
+            )
+            conn.commit()

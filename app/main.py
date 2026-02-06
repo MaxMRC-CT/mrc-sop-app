@@ -17,6 +17,7 @@ from pathlib import Path
 from .db import get_connection, init_db, get_db
 from .seed import import_sops
 from .learning import seed_modules, module_status, is_locked_out
+from .auth import authenticate, ensure_default_admin, get_current_user, require_admin, require_login, create_password_hash, verify_password
 from .validation import (
     PasswordChangeRequest, 
     CreateSOPRequest, 
@@ -2036,150 +2037,150 @@ def compliance_dashboard(
             
             date_clause = " AND " + " AND ".join(date_clause_parts) if date_clause_parts else ""
 
-    ack_by_sop = {
-        row["sop_id"]: row["ack_count"]
-        for row in cur.execute(
-            f"""
-            SELECT sop_id, COUNT(*) AS ack_count FROM (
-                SELECT acknowledgments.sop_id AS sop_id, acknowledgments.staff_id AS staff_id,
-                       MAX(acknowledged_at) AS last_ack
-                FROM acknowledgments
-                JOIN staff ON staff.id = acknowledgments.staff_id AND staff.active = 1
-                WHERE 1=1 {date_clause}
-                GROUP BY acknowledgments.sop_id, acknowledgments.staff_id
-            )
-            GROUP BY sop_id
-            """,
-            date_params,
-        ).fetchall()
-    }
-
-    ack_by_category = {
-        row["category"]: row["ack_count"]
-        for row in cur.execute(
-            f"""
-            SELECT sops.category AS category, COUNT(*) AS ack_count FROM (
-                SELECT acknowledgments.sop_id AS sop_id, acknowledgments.staff_id AS staff_id,
-                       MAX(acknowledged_at) AS last_ack
-                FROM acknowledgments
-                JOIN staff ON staff.id = acknowledgments.staff_id AND staff.active = 1
-                WHERE 1=1 {date_clause}
-                GROUP BY acknowledgments.sop_id, acknowledgments.staff_id
-            ) latest
-            JOIN sops ON sops.id = latest.sop_id
-            GROUP BY sops.category
-            """,
-            date_params,
-        ).fetchall()
-    }
-
-    sop_counts_by_category = {
-        row["category"]: row["sop_count"]
-        for row in cur.execute(
-            "SELECT category, COUNT(*) AS sop_count FROM sops GROUP BY category"
-        ).fetchall()
-    }
-
-    staff_completion = []
-    # FIX: Use single query with JOIN instead of N+1 queries
-    staff_ack_counts = cur.execute(
-        f"""
-        SELECT 
-            s.id,
-            s.name,
-            COUNT(DISTINCT a.sop_id) AS acked_count
-        FROM staff s
-        LEFT JOIN (
-            SELECT staff_id, sop_id, MAX(acknowledged_at) AS last_ack
-            FROM acknowledgments
-            WHERE 1=1 {date_clause}
-            GROUP BY staff_id, sop_id
-        ) a ON a.staff_id = s.id
-        WHERE s.active = 1
-        GROUP BY s.id, s.name
-        ORDER BY s.name
-        """,
-        date_params,
-    ).fetchall()
-    
-    for row in staff_ack_counts:
-        completion = (row["acked_count"] / sop_count * 100) if sop_count else 0
-        staff_completion.append(
-            {"name": row["name"], "acked": row["acked_count"], "total": sop_count, "percent": completion}
-        )
-
-    recent_acks = cur.execute(
-        f"""
-        SELECT staff.name AS staff_name, sops.title AS sop_title, acknowledgments.acknowledged_at
-        FROM acknowledgments
-        JOIN staff ON staff.id = acknowledgments.staff_id
-        JOIN sops ON sops.id = acknowledgments.sop_id
-        WHERE 1=1 {date_clause}
-        ORDER BY acknowledgments.acknowledged_at DESC
-        LIMIT 25
-        """,
-        date_params,
-    ).fetchall()
-
-    overdue = []
-    if staff_count and sop_count:
-        for sop in sops:
-            missing_staff = cur.execute(
-                f"""
-                SELECT staff.name
-                FROM staff
-                WHERE staff.active = 1 AND staff.id NOT IN (
-                    SELECT acknowledgments.staff_id FROM acknowledgments
-                    WHERE acknowledgments.sop_id = ? {date_clause}
-                    GROUP BY acknowledgments.staff_id
-                )
-                ORDER BY staff.name
-                """,
-                [sop["id"], *date_params],
-            ).fetchall()
-            if missing_staff:
-                overdue.append(
-                    {
-                        "sop_title": sop["title"],
-                        "missing": [row[0] for row in missing_staff],
-                    }
-                )
-
-    total_required = staff_count * sop_count
-    total_ack_pairs = sum(ack_by_sop.values())
-    overall_percent = (total_ack_pairs / total_required * 100) if total_required else 0
-
-    # LMS compliance snapshot
-    modules = cur.execute(
-        "SELECT id, title, recert_days FROM training_modules WHERE active = 1 ORDER BY title"
-    ).fetchall()
-    module_count = len(modules)
-    lms_staff_rows = []
-    lms_overdue_rows = []
-    if staff and modules:
-        for s in staff:
-            completed = 0
-            for m in modules:
-                last_pass = cur.execute(
-                    """
-                    SELECT attempted_at FROM training_attempts
-                    WHERE module_id = ? AND staff_id = ? AND passed = 1
-                    ORDER BY attempted_at DESC
-                    LIMIT 1
+            ack_by_sop = {
+                row["sop_id"]: row["ack_count"]
+                for row in cur.execute(
+                    f"""
+                    SELECT sop_id, COUNT(*) AS ack_count FROM (
+                        SELECT acknowledgments.sop_id AS sop_id, acknowledgments.staff_id AS staff_id,
+                               MAX(acknowledged_at) AS last_ack
+                        FROM acknowledgments
+                        JOIN staff ON staff.id = acknowledgments.staff_id AND staff.active = 1
+                        WHERE 1=1 {date_clause}
+                        GROUP BY acknowledgments.sop_id, acknowledgments.staff_id
+                    )
+                    GROUP BY sop_id
                     """,
-                    (m["id"], s["id"]),
-                ).fetchone()
-                if last_pass:
-                    last_date = datetime.strptime(last_pass["attempted_at"], "%Y-%m-%d %H:%M:%S").date()
-                    due_date = last_date + timedelta(days=m["recert_days"])
-                    if date.today() <= due_date:
-                        completed += 1
-                    else:
-                        lms_overdue_rows.append({"staff": s["name"], "module": m["title"], "due": str(due_date)})
-                else:
-                    lms_overdue_rows.append({"staff": s["name"], "module": m["title"], "due": "Not started"})
-            percent = (completed / module_count * 100) if module_count else 0
-            lms_staff_rows.append({"staff": s["name"], "completed": completed, "total": module_count, "percent": percent})
+                    date_params,
+                ).fetchall()
+            }
+
+            ack_by_category = {
+                row["category"]: row["ack_count"]
+                for row in cur.execute(
+                    f"""
+                    SELECT sops.category AS category, COUNT(*) AS ack_count FROM (
+                        SELECT acknowledgments.sop_id AS sop_id, acknowledgments.staff_id AS staff_id,
+                               MAX(acknowledged_at) AS last_ack
+                        FROM acknowledgments
+                        JOIN staff ON staff.id = acknowledgments.staff_id AND staff.active = 1
+                        WHERE 1=1 {date_clause}
+                        GROUP BY acknowledgments.sop_id, acknowledgments.staff_id
+                    ) latest
+                    JOIN sops ON sops.id = latest.sop_id
+                    GROUP BY sops.category
+                    """,
+                    date_params,
+                ).fetchall()
+            }
+
+            sop_counts_by_category = {
+                row["category"]: row["sop_count"]
+                for row in cur.execute(
+                    "SELECT category, COUNT(*) AS sop_count FROM sops GROUP BY category"
+                ).fetchall()
+            }
+
+            staff_completion = []
+            # FIX: Use single query with JOIN instead of N+1 queries
+            staff_ack_counts = cur.execute(
+                f"""
+                SELECT 
+                    s.id,
+                    s.name,
+                    COUNT(DISTINCT a.sop_id) AS acked_count
+                FROM staff s
+                LEFT JOIN (
+                    SELECT staff_id, sop_id, MAX(acknowledged_at) AS last_ack
+                    FROM acknowledgments
+                    WHERE 1=1 {date_clause}
+                    GROUP BY staff_id, sop_id
+                ) a ON a.staff_id = s.id
+                WHERE s.active = 1
+                GROUP BY s.id, s.name
+                ORDER BY s.name
+                """,
+                date_params,
+            ).fetchall()
+            
+            for row in staff_ack_counts:
+                completion = (row["acked_count"] / sop_count * 100) if sop_count else 0
+                staff_completion.append(
+                    {"name": row["name"], "acked": row["acked_count"], "total": sop_count, "percent": completion}
+                )
+
+            recent_acks = cur.execute(
+                f"""
+                SELECT staff.name AS staff_name, sops.title AS sop_title, acknowledgments.acknowledged_at
+                FROM acknowledgments
+                JOIN staff ON staff.id = acknowledgments.staff_id
+                JOIN sops ON sops.id = acknowledgments.sop_id
+                WHERE 1=1 {date_clause}
+                ORDER BY acknowledgments.acknowledged_at DESC
+                LIMIT 25
+                """,
+                date_params,
+            ).fetchall()
+
+            overdue = []
+            if staff_count and sop_count:
+                for sop in sops:
+                    missing_staff = cur.execute(
+                        f"""
+                        SELECT staff.name
+                        FROM staff
+                        WHERE staff.active = 1 AND staff.id NOT IN (
+                            SELECT acknowledgments.staff_id FROM acknowledgments
+                            WHERE acknowledgments.sop_id = ? {date_clause}
+                            GROUP BY acknowledgments.staff_id
+                        )
+                        ORDER BY staff.name
+                        """,
+                        [sop["id"], *date_params],
+                    ).fetchall()
+                    if missing_staff:
+                        overdue.append(
+                            {
+                                "sop_title": sop["title"],
+                                "missing": [row[0] for row in missing_staff],
+                            }
+                        )
+
+            total_required = staff_count * sop_count
+            total_ack_pairs = sum(ack_by_sop.values())
+            overall_percent = (total_ack_pairs / total_required * 100) if total_required else 0
+
+            # LMS compliance snapshot
+            modules = cur.execute(
+                "SELECT id, title, recert_days FROM training_modules WHERE active = 1 ORDER BY title"
+            ).fetchall()
+            module_count = len(modules)
+            lms_staff_rows = []
+            lms_overdue_rows = []
+            if staff and modules:
+                for s in staff:
+                    completed = 0
+                    for m in modules:
+                        last_pass = cur.execute(
+                            """
+                            SELECT attempted_at FROM training_attempts
+                            WHERE module_id = ? AND staff_id = ? AND passed = 1
+                            ORDER BY attempted_at DESC
+                            LIMIT 1
+                            """,
+                            (m["id"], s["id"]),
+                        ).fetchone()
+                        if last_pass:
+                            last_date = datetime.strptime(last_pass["attempted_at"], "%Y-%m-%d %H:%M:%S").date()
+                            due_date = last_date + timedelta(days=m["recert_days"])
+                            if date.today() <= due_date:
+                                completed += 1
+                            else:
+                                lms_overdue_rows.append({"staff": s["name"], "module": m["title"], "due": str(due_date)})
+                        else:
+                            lms_overdue_rows.append({"staff": s["name"], "module": m["title"], "due": "Not started"})
+                    percent = (completed / module_count * 100) if module_count else 0
+                    lms_staff_rows.append({"staff": s["name"], "completed": completed, "total": module_count, "percent": percent})
 
             return _template(
                 "compliance.html",

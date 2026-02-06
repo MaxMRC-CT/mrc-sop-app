@@ -1,7 +1,8 @@
 """Input validation models using Pydantic"""
-from pydantic import BaseModel, Field, validator
-from typing import Optional
 from datetime import date
+from typing import Optional
+
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class CreateSOPRequest(BaseModel):
@@ -10,7 +11,7 @@ class CreateSOPRequest(BaseModel):
     category: str = Field(..., min_length=1, max_length=100)
     content: str = Field(..., min_length=10)
     
-    @validator('title', 'category')
+    @field_validator('title', 'category')
     def strip_whitespace(cls, v):
         if not v or not v.strip():
             raise ValueError('Field cannot be empty or whitespace')
@@ -23,7 +24,7 @@ class UpdateSOPRequest(BaseModel):
     category: str = Field(..., min_length=1, max_length=100)
     content: str = Field(..., min_length=10)
     
-    @validator('title', 'category')
+    @field_validator('title', 'category')
     def strip_whitespace(cls, v):
         if not v or not v.strip():
             raise ValueError('Field cannot be empty or whitespace')
@@ -39,13 +40,13 @@ class CreateStaffRequest(BaseModel):
     supervisor: Optional[str] = Field(None, max_length=200)
     hire_date: Optional[str] = None
     
-    @validator('name')
+    @field_validator('name')
     def name_not_empty(cls, v):
         if not v or not v.strip():
             raise ValueError('Name cannot be empty')
         return v.strip()
     
-    @validator('hire_date')
+    @field_validator('hire_date')
     def validate_date(cls, v):
         if v:
             try:
@@ -59,17 +60,17 @@ class CreateUserRequest(BaseModel):
     """Validation for creating a user account"""
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=8)
-    role: str = Field(..., regex="^(admin|hr_manager|staff)$")
+    role: str = Field(..., pattern="^(admin|manager|staff|training_lead|hr_manager)$")
     staff_id: Optional[int] = None
     
-    @validator('username')
+    @field_validator('username')
     def username_alphanumeric(cls, v):
         v = v.strip()
         if not v.replace('_', '').replace('-', '').isalnum():
             raise ValueError('Username must be alphanumeric (hyphens and underscores allowed)')
         return v.lower()
     
-    @validator('password')
+    @field_validator('password')
     def password_strength(cls, v):
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters')
@@ -85,7 +86,7 @@ class AcknowledgmentRequest(BaseModel):
     signature: str = Field(..., min_length=1, max_length=200)
     read_seconds: int = Field(..., ge=0)
     
-    @validator('signature')
+    @field_validator('signature')
     def signature_not_empty(cls, v):
         if not v or not v.strip():
             raise ValueError('Signature cannot be empty')
@@ -98,13 +99,14 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(..., min_length=8)
     confirm_password: str = Field(..., min_length=8)
     
-    @validator('confirm_password')
-    def passwords_match(cls, v, values):
-        if 'new_password' in values and v != values['new_password']:
+    @field_validator('confirm_password')
+    def passwords_match(cls, v, info: ValidationInfo):
+        new_password = info.data.get('new_password') if info.data else None
+        if new_password and v != new_password:
             raise ValueError('Passwords do not match')
         return v
     
-    @validator('new_password')
+    @field_validator('new_password')
     def password_strength(cls, v):
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters')

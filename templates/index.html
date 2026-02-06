@@ -2,94 +2,116 @@
 {% block content %}
 
 <div class="flex flex-col gap-6">
-  <input id="filters-toggle" type="checkbox" class="peer hidden" />
-  <label for="filters-toggle" class="fixed inset-0 bg-black/60 hidden peer-checked:block z-30"></label>
-  <aside class="fixed left-0 top-0 h-full w-72 bg-[#2f3640] border-r border-white/10 p-5 -translate-x-full peer-checked:translate-x-0 transition-transform duration-300 z-40 lg:hidden">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-sm font-semibold text-white/70">Categories</h2>
-      <label for="filters-toggle" class="text-white/60 text-sm cursor-pointer">Close</label>
-    </div>
-    <div class="space-y-1">
-      <a href="/" class="block px-3 py-2 rounded-lg hover:bg-white/5 {% if category == 'All' %}bg-white/5 font-semibold{% endif %}">
-        All SOPs
-      </a>
-      {% for c in categories %}
-      <a href="/?category={{ c }}" class="block px-3 py-2 rounded-lg hover:bg-white/5 {% if category == c %}bg-white/5 font-semibold{% endif %}">
-        {{ c }}
-      </a>
-      {% endfor %}
-    </div>
-  </aside>
-
-  <form method="get" action="/" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row gap-3 md:items-center">
-    <input
-      type="text"
-      name="q"
-      value="{{ q }}"
-      placeholder="Search SOPs (e.g., medication, intake, incident)"
-      class="flex-1 bg-transparent border border-white/10 rounded-lg px-3 py-2 text-white placeholder-white/40 w-full"
-    />
-
-    <select name="category" class="bg-transparent border border-white/10 rounded-lg px-3 py-2 md:w-64 text-white w-full">
-      <option value="All" {% if category == "All" %}selected{% endif %}>All</option>
-      {% for c in categories %}
-      <option value="{{ c }}" {% if category == c %}selected{% endif %}>{{ c }}</option>
-      {% endfor %}
-    </select>
-
-    <button class="mrc-gradient text-black rounded-lg px-4 py-2 font-semibold hover:opacity-90 w-full md:w-auto">
-      Search
-    </button>
-  </form>
-
-  <div class="flex gap-8">
-
-    <aside class="w-64 hidden lg:block">
-      <div class="sticky top-6">
-        <h2 class="text-xs font-semibold text-white/50 mb-3">CATEGORIES</h2>
-        <div class="bg-[#2f3640] border border-white/10 rounded-2xl p-3">
-          <a href="/" class="block px-3 py-2 rounded-lg hover:bg-white/5 {% if category == 'All' %}bg-white/5 font-semibold{% endif %}">
-            All SOPs
-          </a>
-          {% for c in categories %}
-          <a href="/?category={{ c }}" class="block px-3 py-2 rounded-lg hover:bg-white/5 {% if category == c %}bg-white/5 font-semibold{% endif %}">
-            {{ c }}
-          </a>
-          {% endfor %}
-        </div>
+  <div class="bg-[#2f3640] border border-white/10 rounded-2xl p-6">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold">My Snapshot</h1>
+        <p class="text-sm text-white/60">Role: {{ role_label }}</p>
       </div>
-    </aside>
+      <div class="text-xs text-white/50">Everything you need to complete, in one place.</div>
+    </div>
 
-    <section class="flex-1">
-      <div class="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2 mb-4">
-        <h1 class="text-2xl font-semibold">Policies and Procedures Dashboard</h1>
-        <div class="flex items-center gap-3">
-          <label for="filters-toggle" class="sm:hidden border border-white/10 rounded-lg px-3 py-1.5 text-sm hover:bg-white/5 cursor-pointer">
-            Filters
-          </label>
-          <div class="text-sm text-white/60">
-            {{ total }} Policies
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+      <div class="bg-[#262c34] border border-white/10 rounded-2xl p-5">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-sm text-white/60">Policy & Procedure Signoffs</div>
+            <div class="text-2xl font-semibold">{{ pending_sop_count }}</div>
+          </div>
+          <a href="/sops" class="text-orange-300 hover:underline text-sm">Go to P&amp;P</a>
+        </div>
+        <div class="mt-3">
+          <div class="flex items-center justify-between text-xs text-white/50 mb-2">
+            <span>{{ completed_sops }} of {{ total_sops }} completed</span>
+            <span>{{ (completed_sops / total_sops * 100) | round(0) if total_sops else 0 }}%</span>
+          </div>
+          <div class="h-2 bg-white/10 rounded-full overflow-hidden">
+            <div class="h-full bg-orange-400" style="width: {{ (completed_sops / total_sops * 100) | round(0) if total_sops else 0 }}%;"></div>
           </div>
         </div>
-      </div>
-
-      {% for cat, sops in grouped.items() %}
-      <div class="mb-10">
-        <h2 class="text-lg font-semibold mb-3 border-b border-white/10 pb-2">{{ cat }}</h2>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-          {% for sop in sops %}
-          <a href="/sop/{{ sop[0] }}" class="bg-[#2f3640] border border-white/10 rounded-2xl p-4 hover:shadow-lg hover:shadow-orange-500/10 transition">
-            <div class="text-xs text-white/50 mb-2">{{ sop[2] }}</div>
-            <div class="font-semibold leading-snug">{{ sop[1]|highlight(q)|safe }}</div>
-          </a>
-          {% endfor %}
+        <div class="mt-4 space-y-2">
+          {% if pending_sops %}
+            {% for sop in pending_sops %}
+            <div class="flex items-center justify-between text-sm">
+              <div>
+                <div class="font-semibold">{{ sop.title }}</div>
+                <div class="text-xs text-white/50">{{ sop.category }}</div>
+              </div>
+              <div class="flex items-center gap-3">
+                {% if sop.overdue %}
+                  <span class="text-xs text-amber-300">Overdue</span>
+                {% else %}
+                  <span class="text-xs text-white/50">Not started</span>
+                {% endif %}
+                <a class="text-orange-300 hover:underline text-xs" href="/sop/{{ sop.id }}">Review</a>
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-sm text-white/60">All SOPs acknowledged and current.</div>
+          {% endif %}
         </div>
       </div>
-      {% endfor %}
-    </section>
 
+      <div class="bg-[#262c34] border border-white/10 rounded-2xl p-5">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-sm text-white/60">Learning Management</div>
+            <div class="text-2xl font-semibold">{{ pending_module_count }}</div>
+          </div>
+          <a href="/learning" class="text-orange-300 hover:underline text-sm">Go to Learning</a>
+        </div>
+        <div class="mt-3">
+          <div class="flex items-center justify-between text-xs text-white/50 mb-2">
+            <span>{{ completed_modules }} of {{ total_modules }} completed</span>
+            <span>{{ (completed_modules / total_modules * 100) | round(0) if total_modules else 0 }}%</span>
+          </div>
+          <div class="h-2 bg-white/10 rounded-full overflow-hidden">
+            <div class="h-full bg-orange-400" style="width: {{ (completed_modules / total_modules * 100) | round(0) if total_modules else 0 }}%;"></div>
+          </div>
+        </div>
+        <div class="mt-4 space-y-2">
+          {% if pending_modules %}
+            {% for m in pending_modules %}
+            <div class="flex items-center justify-between text-sm">
+              <div>
+                <div class="font-semibold">{{ m.title }}</div>
+                <div class="text-xs text-white/50">{{ m.status_label }}</div>
+              </div>
+              <div class="flex items-center gap-3">
+                {% if m.overdue %}
+                  <span class="text-xs text-amber-300">Overdue</span>
+                {% else %}
+                  <span class="text-xs text-white/50">Not started</span>
+                {% endif %}
+                <a class="text-orange-300 hover:underline text-xs" href="/learning/module/{{ m.id }}">Start</a>
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-sm text-white/60">All training modules are completed.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
   </div>
+
+  {% if show_manager %}
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <a href="/compliance" class="bg-[#2f3640] border border-white/10 rounded-2xl p-5 hover:shadow-lg hover:shadow-orange-500/10 transition">
+      <div class="text-sm text-white/60 mb-2">Compliance</div>
+      <div class="text-xl font-semibold">Reports & Oversight</div>
+    </a>
+    <a href="/hr" class="bg-[#2f3640] border border-white/10 rounded-2xl p-5 hover:shadow-lg hover:shadow-orange-500/10 transition">
+      <div class="text-sm text-white/60 mb-2">HR</div>
+      <div class="text-xl font-semibold">Staffing & Onboarding</div>
+    </a>
+    <a href="/admin" class="bg-[#2f3640] border border-white/10 rounded-2xl p-5 hover:shadow-lg hover:shadow-orange-500/10 transition">
+      <div class="text-sm text-white/60 mb-2">Admin</div>
+      <div class="text-xl font-semibold">SOP & Module Management</div>
+    </a>
+  </div>
+  {% endif %}
 </div>
 
 {% endblock %}

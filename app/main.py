@@ -155,6 +155,10 @@ def _is_hr(user) -> bool:
     return user and user.role in ("admin", "hr_manager")
 
 
+def _is_manager(user) -> bool:
+    return user and user.role in ("admin", "manager", "training_lead", "hr_manager")
+
+
 
 
 def _training_keywords(cur, staff_type: str):
@@ -297,7 +301,132 @@ def account_update(
 
 @app.get("/")
 def index(request: Request, q: Optional[str] = None, category: Optional[str] = None):
-    if not get_current_user(request):
+    user = get_current_user(request)
+    if not user:
+        return _redirect_login()
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    pending_sops = []
+    pending_modules = []
+    pending_sop_count = 0
+    pending_module_count = 0
+    total_sops = 0
+    completed_sops = 0
+    total_modules = 0
+    completed_modules = 0
+
+    if user.staff_id:
+        sops = cur.execute("SELECT id, title, category FROM sops ORDER BY title").fetchall()
+        total_sops = len(sops)
+        last_acks = {
+            row["sop_id"]: row["last_ack"]
+            for row in cur.execute(
+                "SELECT sop_id, MAX(acknowledged_at) AS last_ack FROM acknowledgments WHERE staff_id = ? GROUP BY sop_id",
+                (user.staff_id,),
+            ).fetchall()
+        }
+        cutoff = date.today() - timedelta(days=REACK_DAYS)
+        for sop in sops:
+            last_ack = last_acks.get(sop["id"])
+            needs_ack = True
+            status_label = "Not started"
+            overdue = False
+            if last_ack:
+                try:
+                    last_date = datetime.strptime(last_ack, "%Y-%m-%d %H:%M:%S").date()
+                    if last_date >= cutoff:
+                        needs_ack = False
+                        status_label = "Completed"
+                    else:
+                        status_label = "Overdue"
+                        overdue = True
+                except ValueError:
+                    needs_ack = True
+            if needs_ack:
+                pending_sops.append(
+                    {
+                        "id": sop["id"],
+                        "title": sop["title"],
+                        "category": sop["category"],
+                        "status_label": status_label,
+                        "overdue": overdue,
+                    }
+                )
+        pending_sop_count = len(pending_sops)
+        completed_sops = max(total_sops - pending_sop_count, 0)
+
+        modules = cur.execute(
+            """
+            SELECT training_modules.id AS module_id, training_modules.title
+            FROM training_modules
+            LEFT JOIN training_assignments ON training_assignments.module_id = training_modules.id
+            WHERE training_modules.active = 1
+            AND (training_assignments.staff_id IS NULL OR training_assignments.staff_id = ?)
+            ORDER BY training_modules.title
+            """,
+            (user.staff_id,),
+        ).fetchall()
+        total_modules = len(modules)
+        for m in modules:
+            status, last_attempt, last_score, last_passed_date = module_status(m["module_id"], user.staff_id)
+            if status != "passed":
+                status_label = "Overdue" if status == "due" else "Not started"
+                pending_modules.append(
+                    {
+                        "id": m["module_id"],
+                        "title": m["title"],
+                        "status": status,
+                        "status_label": status_label,
+                        "overdue": status == "due",
+                    }
+                )
+            else:
+                completed_modules += 1
+        pending_module_count = len(pending_modules)
+
+    conn.close()
+
+    show_compliance = _is_manager(user)
+    show_hr = _is_manager(user)
+    show_admin = user.role == "admin"
+    show_manager = _is_manager(user)
+    role_labels = {
+        "admin": "Admin",
+        "manager": "Manager",
+        "staff": "Staff",
+        "training_lead": "Training Lead",
+        "hr_manager": "HR Manager",
+    }
+    role_label = role_labels.get(user.role, user.role)
+
+    return _template(
+        "index.html",
+        request,
+        {
+            "request": request,
+            "show_compliance": show_compliance,
+            "show_hr": show_hr,
+            "show_admin": show_admin,
+            "show_manager": show_manager,
+            "role_label": role_label,
+            "pending_sops": pending_sops[:6],
+            "pending_sop_count": pending_sop_count,
+            "pending_modules": pending_modules[:6],
+            "pending_module_count": pending_module_count,
+            "total_sops": total_sops,
+            "completed_sops": completed_sops,
+            "total_modules": total_modules,
+            "completed_modules": completed_modules,
+        },
+    )
+
+
+@app.get("/sops")
+def sop_library(request: Request, q: Optional[str] = None, category: Optional[str] = None):
+    user = get_current_user(request)
+    if not user:
         return _redirect_login()
 
     conn = get_connection()
@@ -327,7 +456,7 @@ def index(request: Request, q: Optional[str] = None, category: Optional[str] = N
     total = len(sops)
 
     return _template(
-        "index.html",
+        "sop_library.html",
         request,
         {
             "request": request,
